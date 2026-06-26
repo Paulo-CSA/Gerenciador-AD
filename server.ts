@@ -3,6 +3,10 @@ import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import dns from "dns";
+import dotenv from "dotenv";
+
+// Load environment variables from .env file
+dotenv.config();
 
 // @ts-ignore
 import ActiveDirectory from "activedirectory2";
@@ -33,13 +37,51 @@ if (!fs.existsSync(CONFIG_PATH)) {
 }
 
 function readConfig() {
+  let cfg = { ...defaultConfig };
   try {
-    const data = fs.readFileSync(CONFIG_PATH, "utf8");
-    return JSON.parse(data);
+    if (fs.existsSync(CONFIG_PATH)) {
+      const data = fs.readFileSync(CONFIG_PATH, "utf8");
+      cfg = { ...cfg, ...JSON.parse(data) };
+    }
   } catch (error) {
     console.error("Erro ao ler ad_config.json:", error);
-    return defaultConfig;
   }
+
+  // Override with process.env if present
+  let envHasConfig = false;
+
+  if (process.env.LDAP_URL) {
+    cfg.url = process.env.LDAP_URL;
+    envHasConfig = true;
+  }
+  if (process.env.LDAP_BASE_DN) {
+    cfg.baseDN = process.env.LDAP_BASE_DN;
+    envHasConfig = true;
+  }
+  if (process.env.LDAP_BIND_DN) {
+    cfg.username = process.env.LDAP_BIND_DN;
+    envHasConfig = true;
+  }
+  if (process.env.LDAP_BIND_PASSWORD) {
+    cfg.password = process.env.LDAP_BIND_PASSWORD;
+    envHasConfig = true;
+  }
+  if (process.env.LDAP_DOMAIN) {
+    cfg.domain = process.env.LDAP_DOMAIN;
+    envHasConfig = true;
+  }
+
+  // If there are real LDAP parameters configured in .env, automatically disable the simulation (demo mode)
+  if (envHasConfig) {
+    cfg.useDemoMode = false;
+  }
+
+  // Allow explicit override of the mode via env variable if needed
+  if (process.env.LDAP_USE_DEMO_MODE !== undefined) {
+    cfg.useDemoMode = process.env.LDAP_USE_DEMO_MODE === "true";
+  }
+
+  return cfg;
 }
 
 function writeConfig(cfg: any) {
