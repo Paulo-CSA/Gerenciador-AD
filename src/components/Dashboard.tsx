@@ -170,7 +170,7 @@ export default function Dashboard({
               <UserCheck className="w-6 h-6" />
             </div>
             <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-              Mês Vigente
+              Contas
             </span>
           </div>
           <div className="mt-4">
