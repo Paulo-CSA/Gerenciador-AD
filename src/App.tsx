@@ -161,7 +161,13 @@ export default function App() {
 
   // Custom counts for navigation bubble warnings
   const getDaysInactive = (lastLogonStr: string) => {
+    if (!lastLogonStr || lastLogonStr === 'Nunca') {
+      return 999;
+    }
     const logonDate = new Date(lastLogonStr);
+    if (isNaN(logonDate.getTime())) {
+      return 999;
+    }
     const currentDate = new Date('2026-06-26');
     const diffTime = Math.abs(currentDate.getTime() - logonDate.getTime());
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
