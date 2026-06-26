@@ -141,9 +141,13 @@ function extractOU(dn: string, fallbackDepartment: string = "Geral"): string {
   if (!dn) return fallbackDepartment;
   const matches = dn.match(/OU\s*=\s*([^,]+)/gi);
   if (matches && matches.length > 0) {
-    const parts = matches[0].split("=");
-    if (parts.length > 1) {
-      return parts[1].trim();
+    const ouNames = matches.map(m => {
+      const parts = m.split("=");
+      return parts.length > 1 ? parts[1].trim() : "";
+    }).filter(Boolean);
+    
+    if (ouNames.length > 0) {
+      return ouNames.reverse().join("/");
     }
   }
   return fallbackDepartment;
@@ -164,7 +168,7 @@ function getADUsersPromise(cfg: any): Promise<any[]> {
       connectTimeout: 3000
     });
 
-    adInstance.findUsers({ includeMembership: ["group"] }, (err: any, users: any[]) => {
+    adInstance.findUsers({ includeMembership: ["group"], paged: { pageSize: 1000 } }, (err: any, users: any[]) => {
       if (err || !users || !Array.isArray(users)) {
         console.error("Erro ao buscar usuários para logs de auditoria:", err);
         return resolve([]);
@@ -461,7 +465,7 @@ async function testADConnection(cfg: any): Promise<{ success: boolean; error: st
           connectTimeout: 4000
         });
 
-        adInstance.findUsers((err: any) => {
+        adInstance.findUsers({ sizeLimit: 1 }, (err: any) => {
           if (err) {
             console.warn("Falha ao testar conexão LDAP:", err.message || err);
             return resolve({
@@ -569,7 +573,7 @@ app.get("/api/ad/users", async (req, res) => {
     connectTimeout: 4000
   });
 
-  adInstance.findUsers({ includeMembership: ["group"] }, (err: any, users: any[]) => {
+  adInstance.findUsers({ includeMembership: ["group"], paged: { pageSize: 1000 } }, (err: any, users: any[]) => {
     if (err) {
       console.error("Erro ao buscar usuários LDAP:", err);
       return res.status(500).json({ error: "Erro de consulta AD/LDAP: " + (err.message || err) });
