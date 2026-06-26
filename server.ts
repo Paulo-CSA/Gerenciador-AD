@@ -94,6 +94,49 @@ function writeConfig(cfg: any) {
   }
 }
 
+function safeParseDate(value: any, fallback: string = "2025-01-01"): string {
+  if (!value) return fallback;
+  try {
+    // If it's already in YYYY-MM-DD format, return it
+    if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return value;
+    }
+
+    // Handle large numbers / timestamps (such as Windows FILETIME or millisecond epochs)
+    let numeric = typeof value === "number" ? value : Number(value);
+    if (!isNaN(numeric) && numeric > 10000000000) {
+      // It's likely a Windows FILETIME (e.g., 132456789000000000) or an epoch (e.g., 1719419160000)
+      if (numeric > 100000000000000) { // e.g. 18-digit/17-digit FILETIME
+        numeric = Math.floor(numeric / 10000) - 11644473600000;
+      }
+      const d = new Date(numeric);
+      if (!isNaN(d.getTime())) {
+        return d.toISOString().split("T")[0];
+      }
+    }
+
+    // Some AD generalizedTime can be "20241022134512.0Z" or "20241022134512Z" or similar
+    if (typeof value === "string") {
+      const match = value.match(/^(\d{4})(\d{2})(\d{2})/);
+      if (match) {
+        const year = match[1];
+        const month = match[2];
+        const day = match[3];
+        return `${year}-${month}-${day}`;
+      }
+    }
+
+    // Try standard JS Date parsing
+    const d = new Date(value);
+    if (!isNaN(d.getTime())) {
+      return d.toISOString().split("T")[0];
+    }
+  } catch (error) {
+    console.error("Erro ao converter data:", value, error);
+  }
+  return fallback;
+}
+
 // Bootstrap initial database for simulation mode
 const initialUsers = [
   {
@@ -450,8 +493,8 @@ app.get("/api/ad/users", async (req, res) => {
         ou: user.dn || "",
         title: user.title || "Colaborador",
         status: status,
-        createdDate: user.whenCreated ? new Date(user.whenCreated).toISOString().split("T")[0] : "2025-01-01",
-        lastLogon: user.lastLogonTimestamp ? new Date(user.lastLogonTimestamp).toISOString().split("T")[0] : "2026-06-25",
+        createdDate: safeParseDate(user.whenCreated, "2025-01-01"),
+        lastLogon: safeParseDate(user.lastLogonTimestamp || user.lastLogon, "2026-06-25"),
         pwdLastSet: user.pwdLastSet ? "2026-05-10" : "2026-05-10",
         pwdExpired: expired,
         accountExpires: user.accountExpires === "9223372036854775807" || !user.accountExpires ? null : "2026-12-31",
