@@ -1,0 +1,8 @@
+{
+  "url": "ldap://192.168.1.100:389",
+  "baseDN": "DC=empresa,DC=local",
+  "username": "admin@empresa.local",
+  "password": "",
+  "domain": "empresa.local",
+  "useDemoMode": true
+}

@@ -247,51 +247,66 @@ async function testADConnection(cfg: any): Promise<{ success: boolean; error: st
     return { success: true, error: null };
   }
 
-  return new Promise((resolve) => {
-    // Validate simple settings
-    if (!cfg.url || !cfg.baseDN) {
-      return resolve({ success: false, error: "URL e DN Base são obrigatórios." });
-    }
+  if (!cfg.url || !cfg.baseDN) {
+    return { success: false, error: "URL e DN Base são obrigatórios." };
+  }
 
-    // Attempt domain controller host lookup
-    try {
-      const urlMatch = cfg.url.match(/ldaps?:\/\/([^:/]+)/);
-      if (urlMatch && urlMatch[1]) {
-        const host = urlMatch[1];
-        // Skip DNS checking if it's an IP
-        if (!/^[0-9.]+$/.test(host)) {
-          dns.lookup(host, (dnsErr) => {
+  // Helper to test actual AD LDAP query
+  const runLdapTest = (url: string): Promise<{ success: boolean; error: string | null }> => {
+    return new Promise((resolve) => {
+      try {
+        const adInstance = new ActiveDirectory({
+          url: url,
+          baseDN: cfg.baseDN,
+          username: cfg.username,
+          password: cfg.password,
+          connectTimeout: 4000
+        });
+
+        adInstance.findUsers((err: any) => {
+          if (err) {
+            console.warn("Falha ao testar conexão LDAP:", err.message || err);
+            return resolve({
+              success: false,
+              error: `Erro de Conexão LDAP: ${err.message || "Servidor offline ou fora de alcance"}. Garanta que o servidor AD local está acessível e que as credenciais de bind estão corretas.`
+            });
+          }
+          resolve({ success: true, error: null });
+        });
+      } catch (e: any) {
+        resolve({ success: false, error: `Erro ao inicializar cliente LDAP: ${e.message || e}` });
+      }
+    });
+  };
+
+  // Check DNS resolution if URL contains a hostname
+  try {
+    const urlMatch = cfg.url.match(/ldaps?:\/\/([^:/]+)/);
+    if (urlMatch && urlMatch[1]) {
+      const host = urlMatch[1];
+      // If it's not an IP, check DNS first
+      if (!/^[0-9.]+$/.test(host)) {
+        return new Promise((resolve) => {
+          dns.lookup(host, async (dnsErr) => {
             if (dnsErr) {
               return resolve({
                 success: false,
                 error: `Não foi possível resolver o host '${host}' via DNS local. Verifique se o host está configurado no arquivo hosts ou se está conectado na intranet do AD.`
               });
             }
+            // DNS succeeded, now test LDAP
+            const res = await runLdapTest(cfg.url);
+            resolve(res);
           });
-        }
-      }
-    } catch (e) {}
-
-    const adInstance = new ActiveDirectory({
-      url: cfg.url,
-      baseDN: cfg.baseDN,
-      username: cfg.username,
-      password: cfg.password,
-      // Short timeout to avoid hanging the cloud request
-      connectTimeout: 4000
-    });
-
-    adInstance.findUsers((err: any) => {
-      if (err) {
-        console.warn("Falha ao testar conexão LDAP:", err.message || err);
-        return resolve({
-          success: false,
-          error: `Erro de Conexão LDAP: ${err.message || "Servidor offline ou fora de alcance"}. Garanta que o servidor AD local está acessível e que as credenciais de bind estão corretas.`
         });
       }
-      resolve({ success: true, error: null });
-    });
-  });
+    }
+  } catch (e: any) {
+    return { success: false, error: `Erro na verificação do host: ${e.message || e}` };
+  }
+
+  // It's an IP or doesn't have a hostname to check
+  return runLdapTest(cfg.url);
 }
 
 // --- Active Directory API Routes ---
@@ -352,7 +367,8 @@ app.get("/api/ad/users", async (req, res) => {
     url: cfg.url,
     baseDN: cfg.baseDN,
     username: cfg.username,
-    password: cfg.password
+    password: cfg.password,
+    connectTimeout: 4000
   });
 
   adInstance.findUsers({ includeMembership: ["group"] }, (err: any, users: any[]) => {
@@ -441,7 +457,7 @@ app.post("/api/ad/users/create", async (req, res) => {
   }
 
   // Real AD LDAP User Creation
-  const client = ldap.createClient({ url: cfg.url });
+  const client = ldap.createClient({ url: cfg.url, connectTimeout: 4000 });
   
   client.bind(cfg.username, cfg.password, (bindErr: any) => {
     if (bindErr) {
@@ -499,7 +515,7 @@ app.post("/api/ad/users/update", async (req, res) => {
   }
 
   // Real AD LDAP modification
-  const client = ldap.createClient({ url: cfg.url });
+  const client = ldap.createClient({ url: cfg.url, connectTimeout: 4000 });
   client.bind(cfg.username, cfg.password, (bindErr: any) => {
     if (bindErr) {
       client.destroy();
@@ -561,7 +577,7 @@ app.post("/api/ad/users/reset-password", async (req, res) => {
   }
 
   // Real AD LDAP Password Modification (Requires LDAPS / TLS on AD server)
-  const client = ldap.createClient({ url: cfg.url });
+  const client = ldap.createClient({ url: cfg.url, connectTimeout: 4000 });
   client.bind(cfg.username, cfg.password, (bindErr: any) => {
     if (bindErr) {
       client.destroy();
