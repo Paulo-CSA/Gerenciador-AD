@@ -1,0 +1,6 @@
+{
+  "name": "Gerenciador do Active Directory",
+  "description": "Aplicação de gerenciamento do Active Directory (AD) com dashboard, relatórios e alertas de inatividade.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
