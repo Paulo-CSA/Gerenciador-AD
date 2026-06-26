@@ -174,14 +174,14 @@ export default function Dashboard({
             </span>
           </div>
           <div className="mt-4">
-            <h3 className="text-sm font-medium text-slate-500">Contas Ativas no Mês</h3>
+            <h3 className="text-sm font-medium text-slate-500">Contas Ativas</h3>
             <div className="flex items-baseline gap-2 mt-1">
               <span className="text-3xl font-display font-bold text-slate-800">{activeInCurrentMonth.length}</span>
               <span className="text-xs font-semibold text-emerald-600 flex items-center">
                 +{((activeInCurrentMonth.length / (users.filter(u => u.status === 'Ativa').length || 1)) * 100).toFixed(0)}% do total
               </span>
             </div>
-            <p className="text-xs text-slate-400 mt-2">Logon efetuado em Junho/2026</p>
+            <p className="text-xs text-slate-400 mt-2"></p>
           </div>
         </div>
 
@@ -202,7 +202,7 @@ export default function Dashboard({
             )}
           </div>
           <div className="mt-4">
-            <h3 className="text-sm font-medium text-slate-500">Contas Desativadas no Mês</h3>
+            <h3 className="text-sm font-medium text-slate-500">Contas Desativadas</h3>
             <div className="flex items-baseline gap-2 mt-1">
               <span className="text-3xl font-display font-bold text-slate-800">{disabledInCurrentMonth.length}</span>
               <span className="text-xs font-semibold text-slate-500">
