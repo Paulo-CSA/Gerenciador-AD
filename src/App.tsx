@@ -43,6 +43,7 @@ export default function App() {
   const [loading, setLoading] = useState<boolean>(true);
   const [adConnected, setAdConnected] = useState<boolean>(false);
   const [useDemoMode, setUseDemoMode] = useState<boolean>(true);
+  const [adStatus, setAdStatus] = useState<any>(null);
 
   // Fetch all active data from backend Express server
   const refreshData = async () => {
@@ -68,6 +69,7 @@ export default function App() {
         const statusData = await statusRes.json();
         setAdConnected(statusData.connected);
         setUseDemoMode(statusData.useDemoMode);
+        setAdStatus(statusData);
       }
     } catch (err) {
       console.error('Erro ao buscar dados do servidor AD:', err);
@@ -354,6 +356,7 @@ export default function App() {
                 auditLogs={auditLogs} 
                 inactivityDays={inactivityDays}
                 onNavigate={handleNavigateFromDashboard}
+                adStatus={adStatus}
               />
             </motion.div>
           )}

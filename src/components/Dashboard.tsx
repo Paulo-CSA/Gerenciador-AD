@@ -39,17 +39,36 @@ interface DashboardProps {
   auditLogs: AuditLog[];
   inactivityDays: number;
   onNavigate: (tab: string, filter?: string) => void;
+  adStatus?: any;
 }
 
 export default function Dashboard({ 
   users, 
   auditLogs, 
   inactivityDays,
-  onNavigate 
+  onNavigate,
+  adStatus
 }: DashboardProps) {
   
   // Date calculations (Current date 2026-06-26)
   const CURRENT_YEAR_MONTH = '2026-06';
+
+  const ldapUrl = adStatus?.config?.url || '';
+  let ldapHost = '192.168.1.100';
+  if (ldapUrl) {
+    try {
+      const withoutProto = ldapUrl.replace(/^ldaps?:\/\//i, '');
+      const hostPart = withoutProto.split(':')[0];
+      if (hostPart) ldapHost = hostPart;
+    } catch (e) {
+      // Fallback
+    }
+  }
+
+  const isDemo = adStatus?.useDemoMode ?? true;
+  const dcStatus = isDemo 
+    ? "192.168.1.100 (Simulado)" 
+    : `${ldapHost} (Ativo - Primário)`;
   
   // 1. Contas Ativas no Mês Vigente (status = Ativa E lastLogon no mês vigente)
   const activeInCurrentMonth = users.filter(u => 
@@ -370,7 +389,7 @@ export default function Dashboard({
             
             <div className="flex justify-between items-center pb-3 border-b border-slate-50 text-xs">
               <span className="text-slate-500">Nome do Domínio:</span>
-              <span className="font-mono text-slate-700 font-semibold">empresa.local</span>
+              <span className="font-mono text-slate-700 font-semibold">{adStatus?.config?.domain || "empresa.local"}</span>
             </div>
 
             <div className="flex justify-between items-center pb-3 border-b border-slate-50 text-xs">
@@ -379,13 +398,13 @@ export default function Dashboard({
             </div>
 
             <div className="flex justify-between items-center pb-3 border-b border-slate-50 text-xs">
-              <span className="text-slate-500">Controladores (DC):</span>
-              <span className="font-mono text-slate-700">2 Ativos (1 Primário, 1 Backup)</span>
+              <span className="text-slate-500">Controlador (DC):</span>
+              <span className="font-mono text-slate-700">{dcStatus}</span>
             </div>
 
             <div className="flex justify-between items-center pb-3 border-b border-slate-50 text-xs">
               <span className="text-slate-500">Políticas de Senha:</span>
-              <span className="text-emerald-600 font-semibold">Ativa (Mín. 8 caracteres, Complexidade)</span>
+              <span className="text-emerald-600 font-semibold">Ativa (Requisitos de Complexidade)</span>
             </div>
 
             <div className="flex justify-between items-center text-xs">
