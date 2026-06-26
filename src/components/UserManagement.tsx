@@ -400,11 +400,12 @@ export default function UserManagement({
 
         <div className="pt-2 border-t border-slate-100">
           <button 
-            onClick={() => setIsAddingUser(true)}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm hover:shadow-md transition-all cursor-pointer"
+            disabled
+            className="w-full bg-slate-100 text-slate-400 font-semibold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-not-allowed opacity-60"
+            title="Prover novos usuários está desabilitado nas políticas atuais"
           >
             <UserPlus className="w-4 h-4" />
-            Criar Usuário AD
+            Criar Usuário AD (Desativado)
           </button>
         </div>
       </div>
@@ -477,26 +478,26 @@ export default function UserManagement({
                         <div className="flex items-center justify-center gap-1.5">
                           {user.status === 'Bloqueada' ? (
                             <button 
-                              onClick={() => handleToggleLock(user)}
-                              className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 p-1.5 rounded-lg transition-colors cursor-pointer"
-                              title="Desbloquear Conta"
+                              disabled
+                              className="bg-slate-100 text-slate-400 p-1.5 rounded-lg cursor-not-allowed opacity-50"
+                              title="Desbloquear Conta (Desabilitado)"
                             >
                               <Unlock className="w-3.5 h-3.5" />
                             </button>
                           ) : (
                             <button 
-                              onClick={() => handleToggleLock(user)}
-                              className="bg-slate-50 hover:bg-red-50 text-slate-400 hover:text-red-600 p-1.5 rounded-lg transition-colors cursor-pointer"
-                              title="Bloquear Conta"
+                              disabled
+                              className="bg-slate-100 text-slate-400 p-1.5 rounded-lg cursor-not-allowed opacity-50"
+                              title="Bloquear Conta (Desabilitado)"
                             >
                               <Lock className="w-3.5 h-3.5" />
                             </button>
                           )}
                           
                           <button 
-                            onClick={() => handleResetPassword(user)}
-                            className="bg-blue-50 hover:bg-blue-100 text-blue-700 p-1.5 rounded-lg transition-colors cursor-pointer"
-                            title="Resetar Senha"
+                            disabled
+                            className="bg-slate-100 text-slate-400 p-1.5 rounded-lg cursor-not-allowed opacity-50"
+                            title="Resetar Senha (Desabilitado)"
                           >
                             <RefreshCw className="w-3.5 h-3.5" />
                           </button>
@@ -662,31 +663,25 @@ export default function UserManagement({
               </div>
 
               <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 text-xs space-y-2">
-                <p className="font-semibold text-slate-700">Políticas Ativas do Usuário:</p>
+                <p className="font-semibold text-slate-400">Políticas Ativas do Usuário (Visualização):</p>
                 <div className="space-y-1.5">
-                  <label className="flex items-center gap-2 text-slate-600">
+                  <label className="flex items-center gap-2 text-slate-400 cursor-not-allowed">
                     <input 
                       type="checkbox" 
-                      className="rounded text-blue-600 focus:ring-blue-500"
+                      disabled
+                      className="rounded text-slate-400 border-slate-200 focus:ring-0 cursor-not-allowed opacity-55"
                       checked={selectedUser.mustChangePwd}
-                      onChange={(e) => {
-                        const updated: ADUser = { ...selectedUser, mustChangePwd: e.target.checked };
-                        onUpdateUser(updated);
-                        setSelectedUser(updated);
-                      }}
+                      readOnly
                     />
                     <span>Usuário deve alterar a senha no próximo logon</span>
                   </label>
-                  <label className="flex items-center gap-2 text-slate-600">
+                  <label className="flex items-center gap-2 text-slate-400 cursor-not-allowed">
                     <input 
                       type="checkbox" 
-                      className="rounded text-blue-600 focus:ring-blue-500"
+                      disabled
+                      className="rounded text-slate-400 border-slate-200 focus:ring-0 cursor-not-allowed opacity-55"
                       checked={selectedUser.pwdExpired}
-                      onChange={(e) => {
-                        const updated: ADUser = { ...selectedUser, pwdExpired: e.target.checked };
-                        onUpdateUser(updated);
-                        setSelectedUser(updated);
-                      }}
+                      readOnly
                     />
                     <span>Senha atual expirada (Forçar expiração imediata)</span>
                   </label>
@@ -712,42 +707,42 @@ export default function UserManagement({
 
           </div>
 
-          {/* Drawer Actions Footer */}
+          {/* Drawer Actions Footer (Desabilitado) */}
           <div className="p-4 border-t border-slate-100 bg-slate-50 flex flex-wrap justify-between items-center gap-2">
             
             <div className="flex gap-2">
-              {/* Unlock / Lock */}
+              {/* Unlock / Lock (Desabilitado) */}
               {selectedUser.status === 'Bloqueada' ? (
                 <button 
-                  onClick={() => handleToggleLock(selectedUser)}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-1.5 px-3 rounded-lg text-xs flex items-center gap-1 transition-colors cursor-pointer"
+                  disabled
+                  className="bg-slate-100 text-slate-400 font-semibold py-1.5 px-3 rounded-lg text-xs flex items-center gap-1 cursor-not-allowed opacity-50"
                 >
                   <Unlock className="w-3.5 h-3.5" />
                   Desbloquear
                 </button>
               ) : (
                 <button 
-                  onClick={() => handleToggleLock(selectedUser)}
-                  className="bg-red-50 hover:bg-red-100 text-red-700 font-semibold py-1.5 px-3 rounded-lg text-xs flex items-center gap-1 border border-red-200 transition-colors cursor-pointer"
+                  disabled
+                  className="bg-slate-100 text-slate-400 font-semibold py-1.5 px-3 rounded-lg text-xs flex items-center gap-1 cursor-not-allowed opacity-50"
                 >
                   <Lock className="w-3.5 h-3.5" />
                   Bloquear
                 </button>
               )}
 
-              {/* Disable / Enable */}
+              {/* Disable / Enable (Desabilitado) */}
               {selectedUser.status === 'Desativada' ? (
                 <button 
-                  onClick={() => handleToggleEnable(selectedUser)}
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-1.5 px-3 rounded-lg text-xs flex items-center gap-1 transition-colors cursor-pointer"
+                  disabled
+                  className="bg-slate-100 text-slate-400 font-semibold py-1.5 px-3 rounded-lg text-xs flex items-center gap-1 cursor-not-allowed opacity-50"
                 >
                   <UserCheck className="w-3.5 h-3.5" />
                   Habilitar
                 </button>
               ) : (
                 <button 
-                  onClick={() => handleToggleEnable(selectedUser)}
-                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-1.5 px-3 rounded-lg text-xs flex items-center gap-1 transition-colors cursor-pointer"
+                  disabled
+                  className="bg-slate-100 text-slate-400 font-semibold py-1.5 px-3 rounded-lg text-xs flex items-center gap-1 cursor-not-allowed opacity-50"
                 >
                   <UserMinus className="w-3.5 h-3.5" />
                   Desabilitar
@@ -756,9 +751,9 @@ export default function UserManagement({
             </div>
 
             <button 
-              onClick={() => handleDeleteUser(selectedUser)}
-              className="bg-rose-50 hover:bg-rose-100 text-rose-600 p-2 rounded-lg transition-colors border border-rose-200 cursor-pointer"
-              title="Excluir Usuário permanentemente"
+              disabled
+              className="bg-slate-100 text-slate-400 p-2 rounded-lg cursor-not-allowed opacity-50"
+              title="Exclusão de Usuários desabilitada nas políticas atuais"
             >
               <Trash2 className="w-3.5 h-3.5" />
             </button>

@@ -309,16 +309,16 @@ export default function Alerts({
                         Ignorar
                       </button>
                       <button 
-                        onClick={() => handleSendWarning(user)}
-                        className="bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold px-2.5 py-1.5 rounded-lg text-[10px] transition-colors cursor-pointer"
-                        title="Enviar lembrete de expiração"
+                        disabled
+                        className="bg-slate-100 text-slate-400 font-semibold px-2.5 py-1.5 rounded-lg text-[10px] cursor-not-allowed opacity-50"
+                        title="Envio de e-mail de alerta desabilitado"
                       >
                         Enviar Alerta
                       </button>
                       <button 
-                        onClick={() => handleLockAccount(user)}
-                        className="bg-red-600 hover:bg-red-700 text-white font-semibold px-2.5 py-1.5 rounded-lg text-[10px] flex items-center gap-1.5 transition-colors cursor-pointer"
-                        title="Bloquear sAMAccountName imediatamente"
+                        disabled
+                        className="bg-slate-100 text-slate-400 font-semibold px-2.5 py-1.5 rounded-lg text-[10px] flex items-center gap-1.5 cursor-not-allowed opacity-50"
+                        title="Bloqueio de contas desabilitado"
                       >
                         <UserX className="w-3 h-3" />
                         Bloquear
