@@ -98,6 +98,9 @@ export default function AdConfigPanel({ onConfigChanged }: AdConfigPanelProps) {
           ? "Conexão com Active Directory realizada com sucesso!" 
           : data.error || "Erro ao conectar. Verifique as configurações."
       });
+      if (data.connected) {
+        setConfig(prev => ({ ...prev, password: "" }));
+      }
       onConfigChanged();
     } catch (err) {
       setTestResult({ success: false, msg: "Não foi possível conectar ao servidor backend da aplicação." });

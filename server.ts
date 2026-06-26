@@ -337,7 +337,7 @@ app.post("/api/ad/save-config", async (req, res) => {
     url: url !== undefined ? url : current.url,
     baseDN: baseDN !== undefined ? baseDN : current.baseDN,
     username: username !== undefined ? username : current.username,
-    password: password !== undefined ? password : current.password,
+    password: (password !== undefined && password !== "") ? password : current.password,
     domain: domain !== undefined ? domain : current.domain,
     useDemoMode: useDemoMode !== undefined ? useDemoMode : current.useDemoMode
   };
