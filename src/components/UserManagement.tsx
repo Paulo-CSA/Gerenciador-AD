@@ -99,6 +99,8 @@ export default function UserManagement({
     if (dashboardFilter) {
       if (dashboardFilter === 'Bloqueada') {
         setStatusFilter('Bloqueada');
+      } else if (dashboardFilter === 'DesativadasMes') {
+        setStatusFilter('Desativada');
       } else {
         setStatusFilter('todos');
       }
@@ -144,6 +146,8 @@ export default function UserManagement({
         matchesDashboard = user.createdDate.startsWith(CURRENT_YEAR_MONTH);
       } else if (dashboardFilter === 'Bloqueada') {
         matchesDashboard = user.status === 'Bloqueada';
+      } else if (dashboardFilter === 'DesativadasMes') {
+        matchesDashboard = user.status === 'Desativada';
       }
     }
 
@@ -384,6 +388,7 @@ export default function UserManagement({
               {dashboardFilter === 'AtivasLogonMes' && 'Logon em Junho/2026'}
               {dashboardFilter === 'CriadasMes' && 'Criado em Junho/2026'}
               {dashboardFilter === 'Bloqueada' && 'Apenas Bloqueadas'}
+              {dashboardFilter === 'DesativadasMes' && 'Desativadas no Mês'}
             </p>
           </div>
         )}

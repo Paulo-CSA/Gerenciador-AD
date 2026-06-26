@@ -75,7 +75,8 @@ export default function Dashboard({
     u.status === 'Ativa' && u.lastLogon.startsWith(CURRENT_YEAR_MONTH)
   );
 
-  // 2. Contas Bloqueadas
+  // 2. Contas Desativadas no Mês
+  const disabledInCurrentMonth = users.filter(u => u.status === 'Desativada');
   const blockedUsers = users.filter(u => u.status === 'Bloqueada');
 
   // 3. Contas Criadas no Mês Vigente
@@ -184,31 +185,31 @@ export default function Dashboard({
           </div>
         </div>
 
-        {/* KPI 2: Bloqueadas */}
+        {/* KPI 2: Desativadas no Mês */}
         <div 
-          id="kpi-blocked"
-          onClick={() => onNavigate('contas', 'Bloqueada')}
-          className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs hover:border-red-200 transition-all cursor-pointer group"
+          id="kpi-disabled"
+          onClick={() => onNavigate('contas', 'DesativadasMes')}
+          className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs hover:border-slate-300 transition-all cursor-pointer group"
         >
           <div className="flex justify-between items-start">
-            <div className="bg-red-50 text-red-600 p-3 rounded-xl group-hover:bg-red-100 transition-colors">
+            <div className="bg-slate-100 text-slate-600 p-3 rounded-xl group-hover:bg-slate-200 transition-colors">
               <UserX className="w-6 h-6" />
             </div>
-            {blockedUsers.length > 0 && (
-              <span className="text-[10px] font-bold uppercase tracking-wider text-white bg-red-500 px-2 py-0.5 rounded-full animate-bounce">
-                Ação Requerida
+            {disabledInCurrentMonth.length > 0 && (
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-700 bg-slate-200 px-2 py-0.5 rounded-full">
+                Suspenso
               </span>
             )}
           </div>
           <div className="mt-4">
-            <h3 className="text-sm font-medium text-slate-500">Contas Bloqueadas</h3>
+            <h3 className="text-sm font-medium text-slate-500">Contas Desativadas no Mês</h3>
             <div className="flex items-baseline gap-2 mt-1">
-              <span className="text-3xl font-display font-bold text-slate-800">{blockedUsers.length}</span>
-              <span className="text-xs font-semibold text-red-600">
-                {blockedUsers.length > 0 ? 'Bloqueio imediato' : 'Status limpo'}
+              <span className="text-3xl font-display font-bold text-slate-800">{disabledInCurrentMonth.length}</span>
+              <span className="text-xs font-semibold text-slate-500">
+                Acesso suspenso
               </span>
             </div>
-            <p className="text-xs text-slate-400 mt-2">Exige redefinição de credenciais</p>
+            <p className="text-xs text-slate-400 mt-2">Desativadas administrativamente</p>
           </div>
         </div>
 

@@ -18,7 +18,8 @@ import {
   Lock,
   CalendarDays,
   FileQuestion,
-  Users
+  Users,
+  UserX
 } from 'lucide-react';
 import { ADUser } from '../types';
 
@@ -36,6 +37,7 @@ export default function Reports({ users }: ReportsProps) {
   const [showCreated, setShowCreated] = useState(true);
   const [showBlocked, setShowBlocked] = useState(true);
   const [showExpired, setShowExpired] = useState(true);
+  const [showDisabled, setShowDisabled] = useState(true);
 
   // Department selection state
   const [selectedDept, setSelectedDept] = useState('todos');
@@ -48,6 +50,7 @@ export default function Reports({ users }: ReportsProps) {
     createdCount: 0,
     blockedCount: 0,
     expiredCount: 0,
+    disabledCount: 0,
     totalCount: 0
   });
 
@@ -74,6 +77,7 @@ export default function Reports({ users }: ReportsProps) {
       const activeInPeriod = user.status === 'Ativa' && logonDate >= start && logonDate <= end;
       const isBlocked = user.status === 'Bloqueada';
       const isExpired = user.status === 'Expirada';
+      const isDisabled = user.status === 'Desativada';
 
       // Evaluate matching checked checkboxes
       let matchesStatus = false;
@@ -98,6 +102,11 @@ export default function Reports({ users }: ReportsProps) {
         matchesStatus = true;
       }
 
+      // If "Contas Desativadas" is checked, include disabled users
+      if (showDisabled && isDisabled) {
+        matchesStatus = true;
+      }
+
       return matchesStatus;
     });
 
@@ -109,6 +118,7 @@ export default function Reports({ users }: ReportsProps) {
     }).length;
     const blockedCount = results.filter(u => u.status === 'Bloqueada').length;
     const expiredCount = results.filter(u => u.status === 'Expirada').length;
+    const disabledCount = results.filter(u => u.status === 'Desativada').length;
 
     setMatchedUsers(results);
     setReportSummary({
@@ -116,6 +126,7 @@ export default function Reports({ users }: ReportsProps) {
       createdCount,
       blockedCount,
       expiredCount,
+      disabledCount,
       totalCount: results.length
     });
     setReportGenerated(true);
@@ -260,6 +271,19 @@ export default function Reports({ users }: ReportsProps) {
                   <span className="text-[10px] text-slate-400">Prazos de vigência finalizados</span>
                 </div>
               </label>
+
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  className="rounded text-blue-600 focus:ring-blue-500 h-4.5 w-4.5"
+                  checked={showDisabled}
+                  onChange={(e) => setShowDisabled(e.target.checked)}
+                />
+                <div>
+                  <span className="font-semibold block text-slate-700">Contas Desativadas</span>
+                  <span className="text-[10px] text-slate-400">Acesso suspenso administrativamente</span>
+                </div>
+              </label>
             </div>
           </div>
 
@@ -335,7 +359,7 @@ export default function Reports({ users }: ReportsProps) {
           </div>
 
           {/* Quick numbers for audit overview */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4" id="report-stats">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-4" id="report-stats">
             
             <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-100">
               <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider block">Registros Encontrados</span>
@@ -367,12 +391,20 @@ export default function Reports({ users }: ReportsProps) {
               <span className="text-[10px] text-slate-400 block mt-1">Exige intervenção</span>
             </div>
 
-            <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-100 col-span-2 md:col-span-1">
+            <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-100">
               <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider block flex items-center gap-1">
                 <FileQuestion className="w-3 h-3 text-amber-500" /> Expiradas Atuais
               </span>
               <span className="text-2xl font-bold font-display text-amber-700 block mt-0.5">{reportSummary.expiredCount}</span>
               <span className="text-[10px] text-slate-400 block mt-1">Vigência esgotada</span>
+            </div>
+
+            <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-100">
+              <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider block flex items-center gap-1">
+                <UserX className="w-3 h-3 text-slate-500" /> Desativadas Atuais
+              </span>
+              <span className="text-2xl font-bold font-display text-slate-700 block mt-0.5">{reportSummary.disabledCount}</span>
+              <span className="text-[10px] text-slate-400 block mt-1">Acesso suspenso</span>
             </div>
 
           </div>
