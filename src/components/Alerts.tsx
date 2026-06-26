@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   BellRing, 
   Settings, 
@@ -37,9 +37,12 @@ export default function Alerts({
   onUpdateInactivityDays
 }: AlertsProps) {
   // Alert settings local state (and global prop sync)
-  const [autoAction, setAutoAction] = useState<'none' | 'alert' | 'lock'>('alert');
-  const [notifyEmail, setNotifyEmail] = useState('seguranca@empresa.com.br');
+  const [tempInactivityDays, setTempInactivityDays] = useState(inactivityDays);
   const [successMsg, setSuccessMsg] = useState('');
+
+  useEffect(() => {
+    setTempInactivityDays(inactivityDays);
+  }, [inactivityDays]);
 
   // List of dismissed (whitelisted) users for current session
   const [dismissedUserIds, setDismissedUserIds] = useState<string[]>([]);
@@ -65,6 +68,7 @@ export default function Alerts({
   // Handle setting updates
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
+    onUpdateInactivityDays(tempInactivityDays);
     setSuccessMsg('Configurações de políticas de inatividade salvas com sucesso!');
     setTimeout(() => setSuccessMsg(''), 4000);
 
@@ -74,10 +78,7 @@ export default function Alerts({
       operator: 'admin.silva',
       action: 'Alteração de Diretriz',
       targetUser: 'Sistema',
-      details: `Limite de inatividade configurado para ${inactivityDays} dias. Ação automatizada: ${
-        autoAction === 'none' ? 'Apenas monitorar' : 
-        autoAction === 'alert' ? 'Disparar Alerta por E-mail' : 'Bloqueio Automático'
-      }. Notificações enviadas para ${notifyEmail}.`,
+      details: `Limite de inatividade configurado para ${tempInactivityDays} dias.`,
       type: 'info'
     });
   };
@@ -148,7 +149,7 @@ export default function Alerts({
                 Limite de Inatividade
               </label>
               <span className="bg-blue-50 text-blue-700 font-bold px-2 py-0.5 rounded font-mono">
-                {inactivityDays} dias
+                {tempInactivityDays} dias
               </span>
             </div>
             <input 
@@ -157,75 +158,12 @@ export default function Alerts({
               max="180" 
               step="5"
               className="w-full accent-blue-600 cursor-pointer h-1.5 bg-slate-100 rounded-lg"
-              value={inactivityDays}
-              onChange={(e) => onUpdateInactivityDays(Number(e.target.value))}
+              value={tempInactivityDays}
+              onChange={(e) => setTempInactivityDays(Number(e.target.value))}
             />
             <span className="text-[10px] text-slate-400 block">
               Contas sem logon no período estipulado serão sinalizadas para auditoria de segurança.
             </span>
-          </div>
-
-          {/* Action Trigger Type */}
-          <div className="space-y-1.5">
-            <label className="font-semibold text-slate-600 block">Ação do Trigger Automático</label>
-            <div className="space-y-2">
-              <label className="flex items-start gap-2 text-slate-600 cursor-pointer">
-                <input 
-                  type="radio" 
-                  name="actionType" 
-                  className="mt-0.5 rounded text-blue-600 focus:ring-blue-500"
-                  checked={autoAction === 'none'}
-                  onChange={() => setAutoAction('none')}
-                />
-                <div>
-                  <span className="font-semibold text-slate-700 block">Apenas Monitorar</span>
-                  <span className="text-[10px] text-slate-400 block">Gera os alertas no painel para tratamento manual do TI.</span>
-                </div>
-              </label>
-
-              <label className="flex items-start gap-2 text-slate-600 cursor-pointer">
-                <input 
-                  type="radio" 
-                  name="actionType" 
-                  className="mt-0.5 rounded text-blue-600 focus:ring-blue-500"
-                  checked={autoAction === 'alert'}
-                  onChange={() => setAutoAction('alert')}
-                />
-                <div>
-                  <span className="font-semibold text-slate-700 block">Disparar Alerta</span>
-                  <span className="text-[10px] text-slate-400 block">Envia e-mail de aviso ao usuário e notifica o administrador.</span>
-                </div>
-              </label>
-
-              <label className="flex items-start gap-2 text-slate-600 cursor-pointer">
-                <input 
-                  type="radio" 
-                  name="actionType" 
-                  className="mt-0.5 rounded text-blue-600 focus:ring-blue-500"
-                  checked={autoAction === 'lock'}
-                  onChange={() => setAutoAction('lock')}
-                />
-                <div>
-                  <span className="font-semibold text-rose-700 block">Bloqueio Automático (Recomendado)</span>
-                  <span className="text-[10px] text-slate-400 block">Bloqueia o objeto sAMAccountName imediatamente após estourar o limite.</span>
-                </div>
-              </label>
-            </div>
-          </div>
-
-          {/* Notification Email */}
-          <div className="space-y-1">
-            <label className="font-semibold text-slate-600 block flex items-center gap-1">
-              <Mail className="w-3.5 h-3.5 text-slate-400" />
-              Notificar Setor de Segurança
-            </label>
-            <input 
-              type="email" 
-              required
-              className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
-              value={notifyEmail}
-              onChange={(e) => setNotifyEmail(e.target.value)}
-            />
           </div>
 
           {/* Success messages */}
