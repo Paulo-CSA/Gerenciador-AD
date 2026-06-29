@@ -139,11 +139,14 @@ export default function UserManagement({
     // 4. Dashboard specific filters
     let matchesDashboard = true;
     if (dashboardFilter) {
-      const CURRENT_YEAR_MONTH = '2026-06';
       if (dashboardFilter === 'AtivasLogonMes') {
-        matchesDashboard = user.status === 'Ativa' && user.lastLogon.startsWith(CURRENT_YEAR_MONTH);
+        matchesDashboard = user.status === 'Ativa';
       } else if (dashboardFilter === 'CriadasMes') {
-        matchesDashboard = user.createdDate.startsWith(CURRENT_YEAR_MONTH);
+        const today = new Date();
+        const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+        const endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+        const createdDate = new Date(user.createdDate);
+        matchesDashboard = createdDate >= startOfMonth && createdDate <= endOfToday;
       } else if (dashboardFilter === 'Bloqueada') {
         matchesDashboard = user.status === 'Bloqueada';
       } else if (dashboardFilter === 'DesativadasMes') {
@@ -386,8 +389,12 @@ export default function UserManagement({
               </button>
             </p>
             <p className="mt-1 font-medium bg-white border border-blue-200 px-2 py-0.5 rounded inline-block">
-              {dashboardFilter === 'AtivasLogonMes' && 'Logon em Junho/2026'}
-              {dashboardFilter === 'CriadasMes' && 'Criado em Junho/2026'}
+              {dashboardFilter === 'AtivasLogonMes' && 'Todas as Contas Ativas'}
+              {dashboardFilter === 'CriadasMes' && `Criadas em ${(() => {
+                const d = new Date();
+                const m = d.toLocaleDateString('pt-BR', { month: 'long' });
+                return m.charAt(0).toUpperCase() + m.slice(1);
+              })()}/${new Date().getFullYear()}`}
               {dashboardFilter === 'Bloqueada' && 'Apenas Bloqueadas'}
               {dashboardFilter === 'DesativadasMes' && 'Desativadas no Mês'}
             </p>

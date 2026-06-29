@@ -70,19 +70,23 @@ export default function Dashboard({
     ? "192.168.1.100 (Simulado)" 
     : `${ldapHost} (Ativo - Primário)`;
   
-  // 1. Contas Ativas no Mês Vigente (status = Ativa E lastLogon no mês vigente)
-  const activeInCurrentMonth = users.filter(u => 
-    u.status === 'Ativa' && u.lastLogon.startsWith(CURRENT_YEAR_MONTH)
-  );
+  // 1. Contas Ativas no AD (Todas que estão ativas)
+  const activeInCurrentMonth = users.filter(u => u.status === 'Ativa');
 
   // 2. Contas Desativadas no Mês
   const disabledInCurrentMonth = users.filter(u => u.status === 'Desativada');
   const blockedUsers = users.filter(u => u.status === 'Bloqueada');
 
-  // 3. Contas Criadas no Mês Vigente
-  const createdInCurrentMonth = users.filter(u => 
-    u.createdDate.startsWith(CURRENT_YEAR_MONTH)
-  );
+  // 3. Contas Criadas no Mês Vigente (Dinâmico: do dia 1 até o dia atual)
+  const today = new Date();
+  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  const endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+
+  const createdInCurrentMonth = users.filter(u => {
+    if (!u.createdDate) return false;
+    const createdDate = new Date(u.createdDate);
+    return createdDate >= startOfMonth && createdDate <= endOfToday;
+  });
 
   // 4. Contas Expiradas
   const expiredUsers = users.filter(u => u.status === 'Expirada');
@@ -184,10 +188,10 @@ export default function Dashboard({
             <div className="flex items-baseline gap-2 mt-1">
               <span className="text-3xl font-display font-bold text-slate-800">{activeInCurrentMonth.length}</span>
               <span className="text-xs font-semibold text-emerald-600 flex items-center">
-                +{((activeInCurrentMonth.length / (users.filter(u => u.status === 'Ativa').length || 1)) * 100).toFixed(0)}% do total
+                Ativas no diretório
               </span>
             </div>
-            <p className="text-xs text-slate-400 mt-2"></p>
+            <p className="text-xs text-slate-400 mt-2">Acesso autorizado no domínio</p>
           </div>
         </div>
 
@@ -237,9 +241,17 @@ export default function Dashboard({
             <h3 className="text-sm font-medium text-slate-500">Criadas no Mês</h3>
             <div className="flex items-baseline gap-2 mt-1">
               <span className="text-3xl font-display font-bold text-slate-800">{createdInCurrentMonth.length}</span>
-              <span className="text-xs font-semibold text-blue-600">Provisões de Junho</span>
+              <span className="text-xs font-semibold text-blue-600">
+                Provisões de {(() => {
+                  const d = new Date();
+                  const m = d.toLocaleDateString('pt-BR', { month: 'long' });
+                  return m.charAt(0).toUpperCase() + m.slice(1);
+                })()}
+              </span>
             </div>
-            <p className="text-xs text-slate-400 mt-2">Integração de pessoal concluída</p>
+            <p className="text-xs text-slate-400 mt-2">
+              De 01/{String(new Date().getMonth() + 1).padStart(2, '0')} até hoje ({String(new Date().getDate()).padStart(2, '0')}/{String(new Date().getMonth() + 1).padStart(2, '0')})
+            </p>
           </div>
         </div>
 
