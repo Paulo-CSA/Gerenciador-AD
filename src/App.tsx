@@ -15,7 +15,8 @@ import {
   User, 
   ShieldCheck, 
   ArrowUpRight,
-  Clock
+  Clock,
+  Shield
 } from 'lucide-react';
 
 import { ADUser, AuditLog } from './types';
@@ -24,6 +25,7 @@ import { initialUsers, initialAuditLogs } from './mockData';
 // Component Imports
 import Dashboard from './components/Dashboard';
 import UserManagement from './components/UserManagement';
+import Groups from './components/Groups';
 import Reports from './components/Reports';
 import Alerts from './components/Alerts';
 import AuditLogs from './components/AuditLogs';
@@ -255,6 +257,24 @@ export default function App() {
             )}
           </div>
 
+          {/* Groups Item */}
+          <div 
+            onClick={() => {
+              setActiveTab('grupos');
+              setDashboardFilter(null);
+            }}
+            className={`p-3 rounded-md flex items-center justify-between transition-all cursor-pointer ${
+              activeTab === 'grupos' 
+                ? 'active-nav text-white font-medium' 
+                : 'hover:bg-slate-800 text-slate-300'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Shield className="w-4 h-4 opacity-80" />
+              <span className="text-xs opacity-90">Grupos de Segurança</span>
+            </div>
+          </div>
+
           {/* Reports Item */}
           <div 
             onClick={() => setActiveTab('relatorios')}
@@ -343,6 +363,7 @@ export default function App() {
           <h1 className="text-lg font-semibold text-slate-800 font-display">
             {activeTab === 'dashboard' && 'Visão Geral do Domínio'}
             {activeTab === 'contas' && 'Gerenciamento de Objetos de Contas'}
+            {activeTab === 'grupos' && 'Grupos de Segurança e Distribuição'}
             {activeTab === 'relatorios' && 'Relatório Customizado de Auditoria'}
             {activeTab === 'alertas' && 'Central de Alertas de Inatividade'}
             {activeTab === 'logs' && 'Logs de Auditoria AD'}
@@ -403,6 +424,16 @@ export default function App() {
                 dashboardFilter={dashboardFilter}
                 onClearDashboardFilter={() => setDashboardFilter(null)}
               />
+            </motion.div>
+          )}
+
+          {activeTab === 'grupos' && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25 }}
+            >
+              <Groups users={users} />
             </motion.div>
           )}
 
