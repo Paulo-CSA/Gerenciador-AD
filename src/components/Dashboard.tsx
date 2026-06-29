@@ -50,8 +50,8 @@ export default function Dashboard({
   adStatus
 }: DashboardProps) {
   
-  // Date calculations (Current date 2026-06-26)
-  const CURRENT_YEAR_MONTH = '2026-06';
+  // Date calculations (Current dynamic date)
+  const CURRENT_YEAR_MONTH = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; })();
 
   const ldapUrl = adStatus?.config?.url || '';
   let ldapHost = '192.168.1.100';
@@ -99,7 +99,7 @@ export default function Dashboard({
     if (isNaN(logonDate.getTime())) {
       return 999;
     }
-    const currentDate = new Date('2026-06-26');
+    const currentDate = new Date();
     const diffTime = Math.abs(currentDate.getTime() - logonDate.getTime());
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return diffDays;
@@ -153,7 +153,7 @@ export default function Dashboard({
         <div>
           <h2 className="text-xl font-display font-bold text-slate-800 tracking-tight">Painel de Controle Active Directory</h2>
           <p className="text-slate-500 text-sm mt-1">
-            Status geral do domínio e auditorias de contas. Data de referência: <span className="font-mono bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-semibold text-xs">26/06/2026</span>
+            Status geral do domínio e auditorias de contas. Data de referência: <span className="font-mono bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-semibold text-xs">{(() => { const d = new Date(); const day = String(d.getDate()).padStart(2, '0'); const month = String(d.getMonth() + 1).padStart(2, '0'); return `${day}/${month}/${d.getFullYear()}`; })()}</span>
           </p>
         </div>
         <div className="flex items-center gap-2 text-xs font-medium text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-full self-start md:self-auto">

@@ -56,7 +56,7 @@ export default function Alerts({
     if (isNaN(logonDate.getTime())) {
       return 999;
     }
-    const currentDate = new Date('2026-06-26');
+    const currentDate = new Date();
     const diffTime = Math.abs(currentDate.getTime() - logonDate.getTime());
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return diffDays;
@@ -80,7 +80,7 @@ export default function Alerts({
 
     onAddAuditLog({
       id: Math.random().toString(),
-      timestamp: '2026-06-26 10:06:28',
+      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
       operator: 'admin.silva',
       action: 'Alteração de Diretriz',
       targetUser: 'Sistema',
@@ -99,7 +99,7 @@ export default function Alerts({
 
     onAddAuditLog({
       id: Math.random().toString(),
-      timestamp: '2026-06-26 10:06:28',
+      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
       operator: 'Sistema (Alerta)',
       action: 'Bloqueio Automático',
       targetUser: user.username,
@@ -112,7 +112,7 @@ export default function Alerts({
   const handleSendWarning = (user: ADUser) => {
     onAddAuditLog({
       id: Math.random().toString(),
-      timestamp: '2026-06-26 10:06:28',
+      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
       operator: 'Sistema (E-mail)',
       action: 'Notificação Enviada',
       targetUser: user.username,
@@ -126,7 +126,7 @@ export default function Alerts({
     setDismissedUserIds(prev => [...prev, userId]);
     onAddAuditLog({
       id: Math.random().toString(),
-      timestamp: '2026-06-26 10:06:28',
+      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
       operator: 'admin.silva',
       action: 'Alerta Dispensado',
       targetUser: userName,

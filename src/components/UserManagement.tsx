@@ -161,7 +161,7 @@ export default function UserManagement({
     const updatedUser: ADUser = {
       ...user,
       status: updatedStatus,
-      lastLogon: updatedStatus === 'Ativa' ? '2026-06-26' : user.lastLogon
+      lastLogon: updatedStatus === 'Ativa' ? new Date().toISOString().split('T')[0] : user.lastLogon
     };
     
     onUpdateUser(updatedUser);
@@ -230,7 +230,7 @@ export default function UserManagement({
       
       const updatedUser: ADUser = {
         ...user,
-        pwdLastSet: '2026-06-26',
+        pwdLastSet: new Date().toISOString().split('T')[0],
         pwdExpired: false,
         mustChangePwd: true
       };
@@ -278,6 +278,7 @@ export default function UserManagement({
       return;
     }
 
+    const today = new Date().toISOString().split('T')[0];
     const createdUser: ADUser = {
       id: (users.length + 1).toString(),
       name: newUserName,
@@ -287,9 +288,9 @@ export default function UserManagement({
       ou: newUserOU,
       title: newUserTitle || 'Colaborador',
       status: 'Ativa',
-      createdDate: '2026-06-26',
-      lastLogon: '2026-06-26', // Logon inicial na criação
-      pwdLastSet: '2026-06-26',
+      createdDate: today,
+      lastLogon: today, // Logon inicial na criação
+      pwdLastSet: today,
       pwdExpired: false,
       accountExpires: newUserExpires || null,
       memberOf: ['Domain Users'],
@@ -310,7 +311,7 @@ export default function UserManagement({
 
     onAddAuditLog({
       id: Math.random().toString(),
-      timestamp: '2026-06-26 10:06:28',
+      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
       operator: 'admin.silva',
       action: 'Criação de Usuário',
       targetUser: createdUser.username,

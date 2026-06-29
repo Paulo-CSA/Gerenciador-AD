@@ -189,7 +189,7 @@ export default function App() {
     if (isNaN(logonDate.getTime())) {
       return 999;
     }
-    const currentDate = new Date('2026-06-26');
+    const currentDate = new Date();
     const diffTime = Math.abs(currentDate.getTime() - logonDate.getTime());
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   };
