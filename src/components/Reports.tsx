@@ -49,6 +49,8 @@ export default function Reports({ users }: ReportsProps) {
   const [showBlocked, setShowBlocked] = useState(true);
   const [showExpired, setShowExpired] = useState(true);
   const [showDisabled, setShowDisabled] = useState(true);
+  const [showAllDisabled, setShowAllDisabled] = useState(false);
+  const [showAllCreated, setShowAllCreated] = useState(false);
 
   // Department selection state
   const [selectedDept, setSelectedDept] = useState('todos');
@@ -90,6 +92,12 @@ export default function Reports({ users }: ReportsProps) {
       const isExpired = user.status === 'Expirada';
       const isDisabled = user.status === 'Desativada';
 
+      // Safe date-check for deactivated/disabled accounts in selected period
+      const disabledInPeriod = isDisabled && (
+        (logonDate >= start && logonDate <= end) || 
+        (createdDate >= start && createdDate <= end)
+      );
+
       // Evaluate matching checked checkboxes
       let matchesStatus = false;
       
@@ -113,8 +121,18 @@ export default function Reports({ users }: ReportsProps) {
         matchesStatus = true;
       }
 
-      // If "Contas Desativadas" is checked, include disabled users
-      if (showDisabled && isDisabled) {
+      // If "Contas Desativadas" is checked, include disabled users in the period
+      if (showDisabled && disabledInPeriod) {
+        matchesStatus = true;
+      }
+
+      // If "Todas as Contas Desativadas (Geral)" is checked, include any disabled user (no period limit)
+      if (showAllDisabled && isDisabled) {
+        matchesStatus = true;
+      }
+
+      // If "Todas as Contas Criadas (Geral)" is checked, include any created user (no period limit)
+      if (showAllCreated) {
         matchesStatus = true;
       }
 
@@ -124,6 +142,7 @@ export default function Reports({ users }: ReportsProps) {
     // Compute stats for results
     const activeCount = results.filter(u => u.status === 'Ativa').length;
     const createdCount = results.filter(u => {
+      if (showAllCreated) return true;
       const cDate = new Date(u.createdDate);
       return cDate >= start && cDate <= end;
     }).length;
@@ -291,8 +310,34 @@ export default function Reports({ users }: ReportsProps) {
                   onChange={(e) => setShowDisabled(e.target.checked)}
                 />
                 <div>
-                  <span className="font-semibold block text-slate-700">Contas Desativadas</span>
-                  <span className="text-[10px] text-slate-400">Acesso suspenso administrativamente</span>
+                  <span className="font-semibold block text-slate-700">Contas Desativadas (no Período)</span>
+                  <span className="text-[10px] text-slate-400">Logon ou criação ocorridos no período</span>
+                </div>
+              </label>
+
+              <label className="flex items-center gap-2.5 cursor-pointer border-t border-slate-100 pt-1.5 mt-1.5">
+                <input 
+                  type="checkbox" 
+                  className="rounded text-blue-600 focus:ring-blue-500 h-4.5 w-4.5"
+                  checked={showAllDisabled}
+                  onChange={(e) => setShowAllDisabled(e.target.checked)}
+                />
+                <div>
+                  <span className="font-semibold block text-slate-700">Todas as Contas Desativadas (Geral)</span>
+                  <span className="text-[10px] text-slate-400">Sem restrição de data do período</span>
+                </div>
+              </label>
+
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  className="rounded text-blue-600 focus:ring-blue-500 h-4.5 w-4.5"
+                  checked={showAllCreated}
+                  onChange={(e) => setShowAllCreated(e.target.checked)}
+                />
+                <div>
+                  <span className="font-semibold block text-slate-700">Todas as Contas Criadas (Geral)</span>
+                  <span className="text-[10px] text-slate-400">Todas as contas existentes no diretório</span>
                 </div>
               </label>
             </div>
@@ -388,10 +433,10 @@ export default function Reports({ users }: ReportsProps) {
 
             <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-100">
               <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider block flex items-center gap-1">
-                <CalendarDays className="w-3 h-3 text-blue-500" /> Criadas no Período
+                <CalendarDays className="w-3 h-3 text-blue-500" /> {showAllCreated ? "Criadas (Geral)" : "Criadas no Período"}
               </span>
               <span className="text-2xl font-bold font-display text-blue-700 block mt-0.5">{reportSummary.createdCount}</span>
-              <span className="text-[10px] text-slate-400 block mt-1">Novas provisões</span>
+              <span className="text-[10px] text-slate-400 block mt-1">{showAllCreated ? "Total no diretório" : "Novas provisões"}</span>
             </div>
 
             <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-100">
@@ -412,10 +457,10 @@ export default function Reports({ users }: ReportsProps) {
 
             <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-100">
               <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider block flex items-center gap-1">
-                <UserX className="w-3 h-3 text-slate-500" /> Desativadas Atuais
+                <UserX className="w-3 h-3 text-slate-500" /> {showAllDisabled ? "Desativadas (Geral)" : "Desativadas no Período"}
               </span>
               <span className="text-2xl font-bold font-display text-slate-700 block mt-0.5">{reportSummary.disabledCount}</span>
-              <span className="text-[10px] text-slate-400 block mt-1">Acesso suspenso</span>
+              <span className="text-[10px] text-slate-400 block mt-1">{showAllDisabled ? "Suspensas no geral" : "Suspensas no período"}</span>
             </div>
 
           </div>
