@@ -96,8 +96,23 @@ function writeConfig(cfg: any) {
 }
 
 function safeParseDate(value: any, fallback: string = "2025-01-01"): string {
-  if (!value) return fallback;
+  if (value === undefined || value === null) return fallback;
   try {
+    // Handle array formats sometimes returned by ldap/AD
+    if (Array.isArray(value)) {
+      if (value.length === 0) return fallback;
+      value = value[0];
+    }
+
+    // Convert Buffer or object with toString to string
+    if (value && typeof value === "object") {
+      if (Buffer.isBuffer(value)) {
+        value = value.toString();
+      } else if (typeof value.toString === "function") {
+        value = value.toString();
+      }
+    }
+
     // If it's already in YYYY-MM-DD format, return it
     if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
       return value;
@@ -138,6 +153,30 @@ function safeParseDate(value: any, fallback: string = "2025-01-01"): string {
   return fallback;
 }
 
+function getActualLastLogon(timestamp1: any, timestamp2: any): string {
+  const parseVal = (val: any): string => {
+    if (val === undefined || val === null) return "";
+    if (Array.isArray(val)) {
+      if (val.length === 0) return "";
+      val = val[0];
+    }
+    if (val && typeof val === "object") {
+      if (Buffer.isBuffer(val)) return val.toString().trim();
+      if (typeof val.toString === "function") return val.toString().trim();
+    }
+    return String(val).trim();
+  };
+
+  const cleanVal1 = parseVal(timestamp1);
+  const cleanVal2 = parseVal(timestamp2);
+
+  const isZeroOrEmpty = (s: string) => s === "" || s === "0" || s === "null" || s === "undefined";
+
+  if (!isZeroOrEmpty(cleanVal1)) return cleanVal1;
+  if (!isZeroOrEmpty(cleanVal2)) return cleanVal2;
+  return "0";
+}
+
 function extractOU(dn: string, fallbackDepartment: string = "Geral"): string {
   if (!dn) return fallbackDepartment;
   const matches = dn.match(/OU\s*=\s*([^,]+)/gi);
@@ -169,7 +208,18 @@ function getADUsersPromise(cfg: any): Promise<any[]> {
       connectTimeout: 3000
     });
 
-    adInstance.findUsers({ includeMembership: ["group"], paged: { pageSize: 1000 } }, (err: any, users: any[]) => {
+    const userAttributes = [
+      'dn', 'distinguishedName', 'cn', 'displayName', 'sAMAccountName', 
+      'mail', 'department', 'title', 'userAccountControl', 'whenCreated', 
+      'lastLogon', 'lastLogonTimestamp', 'pwdLastSet', 'accountExpires', 
+      'memberOf', 'telephoneNumber', 'objectGUID'
+    ];
+
+    adInstance.findUsers({ 
+      includeMembership: ["group"], 
+      paged: { pageSize: 1000 },
+      attributes: userAttributes
+    }, (err: any, users: any[]) => {
       if (err || !users || !Array.isArray(users)) {
         console.error("Erro ao buscar usuários para logs de auditoria:", err);
         return resolve([]);
@@ -184,14 +234,15 @@ function getADUsersPromise(cfg: any): Promise<any[]> {
         if (isBlocked) status = "Desativada";
         else if (expired) status = "Expirada";
 
+        const actualLogon = getActualLastLogon(user.lastLogonTimestamp, user.lastLogon);
+        const lastLogonValue = actualLogon === "0" ? "Nunca" : safeParseDate(actualLogon, "Nunca");
+
         return {
           name: user.displayName || user.cn || user.sAMAccountName || "Usuário AD",
           username: user.sAMAccountName || "",
           department: extractOU(user.dn || user.distinguishedName || "", user.department || "Geral"),
           status: status,
-          lastLogon: (user.lastLogonTimestamp === "0" || user.lastLogonTimestamp === 0 || user.lastLogon === "0" || user.lastLogon === 0) 
-            ? "Nunca" 
-            : safeParseDate(user.lastLogonTimestamp || user.lastLogon, "Nunca"),
+          lastLogon: lastLogonValue,
         };
       });
 
@@ -691,7 +742,18 @@ app.get("/api/ad/users", async (req, res) => {
     connectTimeout: 4000
   });
 
-  adInstance.findUsers({ includeMembership: ["group"], paged: { pageSize: 1000 } }, (err: any, users: any[]) => {
+  const userAttributes = [
+    'dn', 'distinguishedName', 'cn', 'displayName', 'sAMAccountName', 
+    'mail', 'department', 'title', 'userAccountControl', 'whenCreated', 
+    'lastLogon', 'lastLogonTimestamp', 'pwdLastSet', 'accountExpires', 
+    'memberOf', 'telephoneNumber', 'objectGUID'
+  ];
+
+  adInstance.findUsers({ 
+    includeMembership: ["group"], 
+    paged: { pageSize: 1000 },
+    attributes: userAttributes
+  }, (err: any, users: any[]) => {
     if (err) {
       console.error("Erro ao buscar usuários LDAP:", err);
       return res.status(500).json({ error: "Erro de consulta AD/LDAP: " + (err.message || err) });
@@ -717,10 +779,34 @@ app.get("/api/ad/users", async (req, res) => {
             const match = dn.match(/^CN=([^,]+)/i);
             return match ? match[1] : dn;
           })
-        : [];
+         : [];
+
+      // Safe GUID parsing
+      let guid = String(index + 1);
+      if (user.objectGUID) {
+        if (Buffer.isBuffer(user.objectGUID)) {
+          guid = user.objectGUID.toString('hex');
+        } else {
+          guid = String(user.objectGUID);
+        }
+      }
+
+      // Safe dynamic lastLogon extraction
+      const actualLogon = getActualLastLogon(user.lastLogonTimestamp, user.lastLogon);
+      const lastLogonValue = actualLogon === "0" ? "Nunca" : safeParseDate(actualLogon, "Nunca");
+
+      // Safe dynamic pwdLastSet extraction
+      const pwdLastSetValue = (user.pwdLastSet === "0" || user.pwdLastSet === 0 || !user.pwdLastSet)
+        ? "Nunca"
+        : safeParseDate(user.pwdLastSet, "2026-05-10");
+
+      // Safe dynamic accountExpires extraction
+      const accountExpiresValue = (user.accountExpires === "9223372036854775807" || user.accountExpires === "0" || !user.accountExpires || user.accountExpires === 0)
+        ? null
+        : safeParseDate(user.accountExpires, null);
 
       return {
-        id: user.objectGUID || String(index + 1),
+        id: guid,
         name: user.displayName || user.cn || user.sAMAccountName || "Usuário AD",
         username: user.sAMAccountName || "",
         email: user.mail || `${user.sAMAccountName}@${cfg.domain}`,
@@ -729,12 +815,10 @@ app.get("/api/ad/users", async (req, res) => {
         title: user.title || "Colaborador",
         status: status,
         createdDate: safeParseDate(user.whenCreated, "2025-01-01"),
-        lastLogon: (user.lastLogonTimestamp === "0" || user.lastLogonTimestamp === 0 || user.lastLogon === "0" || user.lastLogon === 0)
-          ? "Nunca"
-          : safeParseDate(user.lastLogonTimestamp || user.lastLogon, "Nunca"),
-        pwdLastSet: user.pwdLastSet ? "2026-05-10" : "2026-05-10",
+        lastLogon: lastLogonValue,
+        pwdLastSet: pwdLastSetValue,
         pwdExpired: expired,
-        accountExpires: user.accountExpires === "9223372036854775807" || !user.accountExpires ? null : "2026-12-31",
+        accountExpires: accountExpiresValue,
         memberOf: memberOf.length > 0 ? memberOf : ["Domain Users"],
         phone: user.telephoneNumber || "",
         mustChangePwd: user.pwdLastSet === "0"
