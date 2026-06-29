@@ -70,6 +70,10 @@ export default function App() {
         setAdConnected(statusData.connected);
         setUseDemoMode(statusData.useDemoMode);
         setAdStatus(statusData);
+        if (statusData.config && typeof statusData.config.inactivityDays === 'number') {
+          setInactivityDays(statusData.config.inactivityDays);
+          localStorage.setItem('ad_inactivity_threshold', statusData.config.inactivityDays.toString());
+        }
       }
     } catch (err) {
       console.error('Erro ao buscar dados do servidor AD:', err);
@@ -90,6 +94,20 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('ad_inactivity_threshold', inactivityDays.toString());
   }, [inactivityDays]);
+
+  const handleUpdateInactivityDays = async (days: number) => {
+    setInactivityDays(days);
+    localStorage.setItem('ad_inactivity_threshold', days.toString());
+    try {
+      await fetch('/api/ad/save-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inactivityDays: days })
+      });
+    } catch (err) {
+      console.error('Erro ao atualizar limite de inatividade no servidor:', err);
+    }
+  };
 
   // Global state handlers synchronized to Express AD Backend
   const handleAddUser = async (newUser: ADUser) => {
@@ -406,7 +424,7 @@ export default function App() {
                 onUpdateUser={handleUpdateUser}
                 onAddAuditLog={handleAddAuditLog}
                 inactivityDays={inactivityDays}
-                onUpdateInactivityDays={setInactivityDays}
+                onUpdateInactivityDays={handleUpdateInactivityDays}
               />
             </motion.div>
           )}

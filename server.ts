@@ -28,7 +28,8 @@ const defaultConfig = {
   username: "admin@empresa.local",
   password: "Password123",
   domain: "empresa.local",
-  useDemoMode: true
+  useDemoMode: true,
+  inactivityDays: 90
 };
 
 // Ensure configuration file exists
@@ -613,7 +614,8 @@ app.get("/api/ad/status", async (req, res) => {
       url: cfg.url,
       baseDN: cfg.baseDN,
       username: cfg.username,
-      domain: cfg.domain
+      domain: cfg.domain,
+      inactivityDays: cfg.inactivityDays !== undefined ? cfg.inactivityDays : 90
     },
     connected: test.success,
     error: test.error
@@ -622,7 +624,7 @@ app.get("/api/ad/status", async (req, res) => {
 
 // 2. Save AD Connection Config
 app.post("/api/ad/save-config", async (req, res) => {
-  const { url, baseDN, username, password, domain, useDemoMode } = req.body;
+  const { url, baseDN, username, password, domain, useDemoMode, inactivityDays } = req.body;
   const current = readConfig();
   
   const updated = {
@@ -631,7 +633,8 @@ app.post("/api/ad/save-config", async (req, res) => {
     username: username !== undefined ? username : current.username,
     password: (password !== undefined && password !== "") ? password : current.password,
     domain: domain !== undefined ? domain : current.domain,
-    useDemoMode: useDemoMode !== undefined ? useDemoMode : current.useDemoMode
+    useDemoMode: useDemoMode !== undefined ? useDemoMode : current.useDemoMode,
+    inactivityDays: inactivityDays !== undefined ? inactivityDays : (current.inactivityDays !== undefined ? current.inactivityDays : 90)
   };
 
   writeConfig(updated);
@@ -641,7 +644,14 @@ app.post("/api/ad/save-config", async (req, res) => {
     success: true,
     connected: test.success,
     error: test.error,
-    useDemoMode: updated.useDemoMode
+    useDemoMode: updated.useDemoMode,
+    config: {
+      url: updated.url,
+      baseDN: updated.baseDN,
+      username: updated.username,
+      domain: updated.domain,
+      inactivityDays: updated.inactivityDays
+    }
   });
 });
 
