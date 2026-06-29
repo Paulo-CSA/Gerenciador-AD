@@ -32,8 +32,22 @@ export interface AuditLog {
   type: 'success' | 'warning' | 'danger' | 'info';
 }
 
+export interface GPO {
+  id: string;
+  name: string;
+  status: 'Ativo' | 'Desativado' | 'Apenas Computador' | 'Apenas Usuário';
+  linkedTo: string[]; // OUs linked to, empty array if not in use / unlinked
+  enforced: boolean;
+  gpoType: 'Segurança' | 'Preferências' | 'Modelos Administrativos' | 'Software' | 'Scripts';
+  description: string;
+  modifiedDate: string;
+  author: string;
+}
+
 export interface InactivitySetting {
   thresholdDays: number;
   autoAction: 'none' | 'alert' | 'lock';
   notifyEmail: string;
 }
+
+

@@ -30,6 +30,7 @@ import Reports from './components/Reports';
 import Alerts from './components/Alerts';
 import AuditLogs from './components/AuditLogs';
 import AdConfigPanel from './components/AdConfigPanel';
+import GroupPolicies from './components/GroupPolicies';
 
 export default function App() {
   // Navigation State
@@ -275,6 +276,24 @@ export default function App() {
             </div>
           </div>
 
+          {/* Group Policies GPO Item */}
+          <div 
+            onClick={() => {
+              setActiveTab('gpos');
+              setDashboardFilter(null);
+            }}
+            className={`p-3 rounded-md flex items-center justify-between transition-all cursor-pointer ${
+              activeTab === 'gpos' 
+                ? 'active-nav text-white font-medium' 
+                : 'hover:bg-slate-800 text-slate-300'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <ShieldCheck className="w-4 h-4 opacity-80" />
+              <span className="text-xs opacity-90">Políticas de Grupo</span>
+            </div>
+          </div>
+
           {/* Reports Item */}
           <div 
             onClick={() => setActiveTab('relatorios')}
@@ -364,6 +383,7 @@ export default function App() {
             {activeTab === 'dashboard' && 'Visão Geral do Domínio'}
             {activeTab === 'contas' && 'Gerenciamento de Objetos de Contas'}
             {activeTab === 'grupos' && 'Grupos de Segurança e Distribuição'}
+            {activeTab === 'gpos' && 'Diretivas de Políticas de Grupo (GPO)'}
             {activeTab === 'relatorios' && 'Relatório Customizado de Auditoria'}
             {activeTab === 'alertas' && 'Central de Alertas de Inatividade'}
             {activeTab === 'logs' && 'Logs de Auditoria AD'}
@@ -434,6 +454,16 @@ export default function App() {
               transition={{ duration: 0.25 }}
             >
               <Groups users={users} />
+            </motion.div>
+          )}
+
+          {activeTab === 'gpos' && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25 }}
+            >
+              <GroupPolicies />
             </motion.div>
           )}
 
