@@ -95,85 +95,99 @@ function writeConfig(cfg: any) {
   }
 }
 
-function safeParseDate(value: any, fallback: string = "2025-01-01"): string {
-  if (value === undefined || value === null) return fallback;
-  try {
-    // Handle array formats sometimes returned by ldap/AD
-    if (Array.isArray(value)) {
-      if (value.length === 0) return fallback;
-      value = value[0];
-    }
+function parseAdDateTime(value: any): number | null {
+  if (value === undefined || value === null) return null;
 
-    // Convert Buffer or object with toString to string
-    if (value && typeof value === "object") {
-      if (Buffer.isBuffer(value)) {
-        value = value.toString();
-      } else if (typeof value.toString === "function") {
-        value = value.toString();
-      }
-    }
-
-    // If it's already in YYYY-MM-DD format, return it
-    if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-      return value;
-    }
-
-    // Handle large numbers / timestamps (such as Windows FILETIME or millisecond epochs)
-    let numeric = typeof value === "number" ? value : Number(value);
-    if (!isNaN(numeric) && numeric > 10000000000) {
-      // It's likely a Windows FILETIME (e.g., 132456789000000000) or an epoch (e.g., 1719419160000)
-      if (numeric > 100000000000000) { // e.g. 18-digit/17-digit FILETIME
-        numeric = Math.floor(numeric / 10000) - 11644473600000;
-      }
-      const d = new Date(numeric);
-      if (!isNaN(d.getTime())) {
-        return d.toISOString().split("T")[0];
-      }
-    }
-
-    // Some AD generalizedTime can be "20241022134512.0Z" or "20241022134512Z" or similar
-    if (typeof value === "string") {
-      const match = value.match(/^(\d{4})(\d{2})(\d{2})/);
-      if (match) {
-        const year = match[1];
-        const month = match[2];
-        const day = match[3];
-        return `${year}-${month}-${day}`;
-      }
-    }
-
-    // Try standard JS Date parsing
-    const d = new Date(value);
-    if (!isNaN(d.getTime())) {
-      return d.toISOString().split("T")[0];
-    }
-  } catch (error) {
-    console.error("Erro ao converter data:", value, error);
+  // Handle array formats sometimes returned by ldap/AD
+  if (Array.isArray(value)) {
+    if (value.length === 0) return null;
+    value = value[0];
   }
-  return fallback;
+
+  // Handle object with high and low (LargeInteger representation of 64-bit integer)
+  if (value && typeof value === "object" && "high" in value && "low" in value) {
+    const high = Number(value.high) || 0;
+    const low = Number(value.low) || 0;
+    const unsignedLow = low >>> 0;
+    const filetime = (high * 4294967296) + unsignedLow;
+    if (filetime === 0 || filetime === 9223372036854775807) return null;
+    return Math.floor(filetime / 10000) - 11644473600000;
+  }
+
+  // Handle 8-byte Buffers (binary FILETIME structure)
+  if (value && Buffer.isBuffer(value)) {
+    if (value.length === 8) {
+      const low = value.readUInt32LE(0);
+      const high = value.readUInt32LE(4);
+      const filetime = (high * 4294967296) + low;
+      if (filetime === 0 || filetime === 9223372036854775807) return null;
+      return Math.floor(filetime / 10000) - 11644473600000;
+    } else {
+      value = value.toString().trim();
+    }
+  }
+
+  // If it's a general object but has no high/low, try string conversion
+  if (typeof value === "object" && value !== null) {
+    const str = String(value);
+    if (str === "[object Object]") {
+      return null;
+    }
+    value = str;
+  }
+
+  const strVal = String(value).trim();
+  if (strVal === "" || strVal === "0" || strVal === "null" || strVal === "undefined" || strVal === "9223372036854775807") {
+    return null;
+  }
+
+  // If it's a numeric string of FILETIME (17-18 digits) or standard millisecond epoch
+  if (/^\d+$/.test(strVal)) {
+    const num = Number(strVal);
+    if (num > 100000000000000) { // FILETIME
+      return Math.floor(num / 10000) - 11644473600000;
+    } else if (num > 10000000000) { // unix ms epoch
+      return num;
+    }
+  }
+
+  // Handle GeneralizedTime strings (e.g., "20241022134512.0Z")
+  const generalizedTimeMatch = strVal.match(/^(\d{4})(\d{2})(\d{2})/);
+  if (generalizedTimeMatch) {
+    const year = generalizedTimeMatch[1];
+    const month = generalizedTimeMatch[2];
+    const day = generalizedTimeMatch[3];
+    const d = new Date(`${year}-${month}-${day}`);
+    if (!isNaN(d.getTime())) {
+      return d.getTime();
+    }
+  }
+
+  const parsedDate = new Date(strVal);
+  if (!isNaN(parsedDate.getTime())) {
+    return parsedDate.getTime();
+  }
+
+  return null;
+}
+
+function safeParseDate(value: any, fallback: string = "2025-01-01"): string {
+  const ms = parseAdDateTime(value);
+  if (ms === null) return fallback;
+  const d = new Date(ms);
+  if (isNaN(d.getTime())) return fallback;
+  return d.toISOString().split("T")[0];
 }
 
 function getActualLastLogon(timestamp1: any, timestamp2: any): string {
-  const parseVal = (val: any): string => {
-    if (val === undefined || val === null) return "";
-    if (Array.isArray(val)) {
-      if (val.length === 0) return "";
-      val = val[0];
-    }
-    if (val && typeof val === "object") {
-      if (Buffer.isBuffer(val)) return val.toString().trim();
-      if (typeof val.toString === "function") return val.toString().trim();
-    }
-    return String(val).trim();
-  };
+  const ms1 = parseAdDateTime(timestamp1);
+  const ms2 = parseAdDateTime(timestamp2);
 
-  const cleanVal1 = parseVal(timestamp1);
-  const cleanVal2 = parseVal(timestamp2);
-
-  const isZeroOrEmpty = (s: string) => s === "" || s === "0" || s === "null" || s === "undefined";
-
-  if (!isZeroOrEmpty(cleanVal1)) return cleanVal1;
-  if (!isZeroOrEmpty(cleanVal2)) return cleanVal2;
+  if (ms1 !== null && ms2 !== null) {
+    return ms1 > ms2 ? String(ms1) : String(ms2);
+  }
+  if (ms1 !== null) return String(ms1);
+  if (ms2 !== null) return String(ms2);
   return "0";
 }
 
@@ -212,7 +226,7 @@ function getADUsersPromise(cfg: any): Promise<any[]> {
       'dn', 'distinguishedName', 'cn', 'displayName', 'sAMAccountName', 
       'mail', 'department', 'title', 'userAccountControl', 'whenCreated', 
       'lastLogon', 'lastLogonTimestamp', 'pwdLastSet', 'accountExpires', 
-      'memberOf', 'telephoneNumber', 'objectGUID'
+      'memberOf', 'telephoneNumber', 'objectGUID', 'lockoutTime'
     ];
 
     adInstance.findUsers({ 
@@ -227,12 +241,18 @@ function getADUsersPromise(cfg: any): Promise<any[]> {
 
       const mapped = users.map((user: any, index: number) => {
         const uac = user.userAccountControl || 512;
-        const isBlocked = (uac & 0x0002) !== 0;
-        const expired = user.pwdLastSet === "0";
+        const isAdDisabled = (uac & 0x0002) !== 0; // ACCOUNTDISABLE
+        const isAdLocked = (uac & 0x0010) !== 0 || (parseAdDateTime(user.lockoutTime) !== null); // LOCKOUT
+        const expired = user.pwdLastSet === "0" || user.pwdLastSet === 0;
 
         let status = "Ativa";
-        if (isBlocked) status = "Desativada";
-        else if (expired) status = "Expirada";
+        if (isAdDisabled) {
+          status = "Desativada";
+        } else if (isAdLocked) {
+          status = "Bloqueada";
+        } else if (expired) {
+          status = "Expirada";
+        }
 
         const actualLogon = getActualLastLogon(user.lastLogonTimestamp, user.lastLogon);
         const lastLogonValue = actualLogon === "0" ? "Nunca" : safeParseDate(actualLogon, "Nunca");
@@ -746,7 +766,7 @@ app.get("/api/ad/users", async (req, res) => {
     'dn', 'distinguishedName', 'cn', 'displayName', 'sAMAccountName', 
     'mail', 'department', 'title', 'userAccountControl', 'whenCreated', 
     'lastLogon', 'lastLogonTimestamp', 'pwdLastSet', 'accountExpires', 
-    'memberOf', 'telephoneNumber', 'objectGUID'
+    'memberOf', 'telephoneNumber', 'objectGUID', 'lockoutTime'
   ];
 
   adInstance.findUsers({ 
@@ -766,12 +786,18 @@ app.get("/api/ad/users", async (req, res) => {
     // Map AD properties to ADUser app types
     const mappedUsers = users.map((user: any, index: number) => {
       const uac = user.userAccountControl || 512;
-      const isBlocked = (uac & 0x0002) !== 0; // bit 2 is ACCOUNTDISABLE
-      const expired = user.pwdLastSet === "0"; // or custom business rules
+      const isAdDisabled = (uac & 0x0002) !== 0; // ACCOUNTDISABLE
+      const isAdLocked = (uac & 0x0010) !== 0 || (parseAdDateTime(user.lockoutTime) !== null); // LOCKOUT
+      const expired = user.pwdLastSet === "0" || user.pwdLastSet === 0;
 
       let status: "Ativa" | "Bloqueada" | "Expirada" | "Desativada" = "Ativa";
-      if (isBlocked) status = "Desativada";
-      else if (expired) status = "Expirada";
+      if (isAdDisabled) {
+        status = "Desativada";
+      } else if (isAdLocked) {
+        status = "Bloqueada";
+      } else if (expired) {
+        status = "Expirada";
+      }
 
       // Parse groups
       const memberOf = Array.isArray(user.memberOf) 
