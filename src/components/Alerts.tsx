@@ -17,7 +17,8 @@ import {
   XCircle,
   Sparkles,
   HelpCircle,
-  Inbox
+  Inbox,
+  Download
 } from 'lucide-react';
 import { ADUser, AuditLog, InactivitySetting } from '../types';
 
@@ -135,6 +136,38 @@ export default function Alerts({
     });
   };
 
+  const handleExportCSV = () => {
+    if (inactiveUsers.length === 0) return;
+
+    const headers = ['Nome Completo', 'Logon (sAMAccountName)', 'E-mail', 'Departamento', 'Cargo', 'Dias Inativo', 'Ultimo Logon'];
+    const csvRows = [headers.join(';')];
+
+    inactiveUsers.forEach(u => {
+      const daysInactive = getDaysInactive(u.lastLogon);
+      const row = [
+        `"${u.name}"`,
+        `"${u.username}"`,
+        `"${u.email}"`,
+        `"${u.department}"`,
+        `"${u.title}"`,
+        `"${daysInactive}"`,
+        `"${u.lastLogon}"`
+      ];
+      csvRows.push(row.join(';'));
+    });
+
+    const csvContent = '\uFEFF' + csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const todayStr = new Date().toISOString().split('T')[0];
+    link.setAttribute('href', url);
+    link.setAttribute('download', `AD_Alertas_Inatividade_${inactivityDays}d_${todayStr}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in" id="alerts-section">
       
@@ -206,7 +239,7 @@ export default function Alerts({
         
         <div className="bg-white rounded-2xl border border-slate-100 shadow-xs overflow-hidden">
           
-          <div className="p-4 border-b border-slate-50 flex items-center justify-between">
+          <div className="p-4 border-b border-slate-50 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-2">
                 <BellRing className="w-4 h-4 text-amber-500 animate-swing" />
@@ -215,9 +248,20 @@ export default function Alerts({
               <p className="text-slate-400 text-[11px]">Usuários com inatividade superior a <strong className="text-blue-600">{inactivityDays} dias</strong> que continuam com acesso autorizado</p>
             </div>
             
-            <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
-              Revisão Requerida
-            </span>
+            <div className="flex items-center gap-2 self-start md:self-auto">
+              <button
+                onClick={handleExportCSV}
+                disabled={inactiveUsers.length === 0}
+                className="text-[11px] font-semibold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition-colors border border-slate-200 cursor-pointer"
+                title="Exportar usuários inativos exibidos em CSV"
+              >
+                <Download className="w-3.5 h-3.5 text-slate-500" />
+                Exportar CSV
+              </button>
+              <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
+                Revisão Requerida
+              </span>
+            </div>
           </div>
 
           <div className="divide-y divide-slate-100 max-h-[60vh] overflow-y-auto">
