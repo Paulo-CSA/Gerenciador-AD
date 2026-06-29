@@ -799,13 +799,29 @@ app.get("/api/ad/users", async (req, res) => {
         status = "Expirada";
       }
 
-      // Parse groups
-      const memberOf = Array.isArray(user.memberOf) 
-        ? user.memberOf.map((dn: string) => {
+      // Parse groups robustly (handles arrays, single string values, and ensures primary groups)
+      const memberOfList: string[] = [];
+      if (user.memberOf) {
+        const rawGroups = Array.isArray(user.memberOf) ? user.memberOf : [user.memberOf];
+        rawGroups.forEach((dn: any) => {
+          if (dn && typeof dn === "string") {
             const match = dn.match(/^CN=([^,]+)/i);
-            return match ? match[1] : dn;
-          })
-         : [];
+            const groupName = match ? match[1] : dn;
+            if (groupName && !memberOfList.includes(groupName)) {
+              memberOfList.push(groupName);
+            }
+          }
+        });
+      }
+
+      // Add default domain users groups (AD primary groups aren't usually in memberOf,
+      // and we want to support both English and Portuguese AD environments)
+      const primaryGroups = ["Domain Users", "Utilizadores do Domínio", "Usuários do Domínio"];
+      primaryGroups.forEach(grp => {
+        if (!memberOfList.includes(grp)) {
+          memberOfList.push(grp);
+        }
+      });
 
       // Safe GUID parsing
       let guid = String(index + 1);
@@ -845,7 +861,7 @@ app.get("/api/ad/users", async (req, res) => {
         pwdLastSet: pwdLastSetValue,
         pwdExpired: expired,
         accountExpires: accountExpiresValue,
-        memberOf: memberOf.length > 0 ? memberOf : ["Domain Users"],
+        memberOf: memberOfList,
         phone: user.telephoneNumber || "",
         mustChangePwd: user.pwdLastSet === "0"
       };

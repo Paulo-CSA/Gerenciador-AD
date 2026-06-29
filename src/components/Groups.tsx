@@ -574,7 +574,7 @@ export default function Groups({ users }: GroupsProps) {
                     <div className="p-12 text-center text-slate-400 text-xs flex flex-col items-center justify-center gap-2">
                       <ShieldAlert className="w-8 h-8 text-amber-500" />
                       <div>Este usuário não faz parte de nenhum grupo de segurança customizado.</div>
-                      <div className="text-[10px] text-slate-400">Geralmente inserido apenas no padrão Domain Users</div>
+                      <div className="text-[10px] text-slate-400">Geralmente inserido apenas no padrão Domain Users / Utilizadores do Domínio</div>
                     </div>
                   ) : (
                     <table className="w-full text-left border-collapse">
