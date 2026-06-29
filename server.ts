@@ -637,13 +637,29 @@ app.post("/api/ad/save-config", async (req, res) => {
     inactivityDays: inactivityDays !== undefined ? inactivityDays : (current.inactivityDays !== undefined ? current.inactivityDays : 90)
   };
 
+  const connectionParamsChanged = 
+    (url !== undefined && url !== current.url) ||
+    (baseDN !== undefined && baseDN !== current.baseDN) ||
+    (username !== undefined && username !== current.username) ||
+    (password !== undefined && password !== "" && password !== current.password) ||
+    (domain !== undefined && domain !== current.domain) ||
+    (useDemoMode !== undefined && useDemoMode !== current.useDemoMode);
+
   writeConfig(updated);
-  const test = await testADConnection(updated);
+
+  let connected = true;
+  let error = null;
+
+  if (connectionParamsChanged) {
+    const test = await testADConnection(updated);
+    connected = test.success;
+    error = test.error;
+  }
 
   res.json({
     success: true,
-    connected: test.success,
-    error: test.error,
+    connected,
+    error,
     useDemoMode: updated.useDemoMode,
     config: {
       url: updated.url,

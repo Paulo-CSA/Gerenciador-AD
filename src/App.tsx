@@ -39,7 +39,10 @@ export default function App() {
   // Core AD States (Backend-Driven)
   const [users, setUsers] = useState<ADUser[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-  const [inactivityDays, setInactivityDays] = useState<number>(90);
+  const [inactivityDays, setInactivityDays] = useState<number>(() => {
+    const saved = localStorage.getItem('ad_inactivity_threshold');
+    return saved ? Number(saved) : 90;
+  });
   const [loading, setLoading] = useState<boolean>(true);
   const [adConnected, setAdConnected] = useState<boolean>(false);
   const [useDemoMode, setUseDemoMode] = useState<boolean>(true);
