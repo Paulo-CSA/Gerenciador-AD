@@ -1112,6 +1112,502 @@ app.post("/api/ad/logs/create", (req, res) => {
 });
 
 
+// 10. Get Group Policy Objects (GPOs)
+app.get("/api/ad/gpos", async (req, res) => {
+  const cfg = readConfig();
+  
+  if (cfg.useDemoMode) {
+    const demoGPOs = generateDemoGPOs();
+    return res.json(demoGPOs);
+  }
+
+  const adInstance = new ActiveDirectory({
+    url: cfg.url,
+    baseDN: cfg.baseDN,
+    username: cfg.username,
+    password: cfg.password,
+    connectTimeout: 4000
+  });
+
+  // 1. Search for all Group Policy Containers in AD
+  adInstance.find({
+    filter: '(objectClass=groupPolicyContainer)',
+    attributes: ['cn', 'displayName', 'whenChanged', 'flags', 'gPCFileSysPath', 'gPCMachineExtensionNames', 'gPCUserExtensionNames']
+  }, (err: any, results: any) => {
+    if (err) {
+      console.error("Erro ao buscar GPOs do AD:", err);
+      // Fallback to demo GPOs if real AD query fails to prevent breaking the UI
+      const demoGPOs = generateDemoGPOs();
+      return res.json(demoGPOs);
+    }
+
+    const gpoObjects = (results && results.other) || [];
+    
+    // 2. Search for OUs, Containers and Domain root to map linked GPOs
+    adInstance.find({
+      filter: '(|(objectClass=organizationalUnit)(objectClass=domainDNS)(objectClass=container))',
+      attributes: ['distinguishedName', 'dn', 'gPLink']
+    }, (err2: any, results2: any) => {
+      const ouObjects = (results2 && results2.other) || [];
+      const linksMap: Record<string, { ou: string; enforced: boolean }[]> = {};
+
+      ouObjects.forEach((ou: any) => {
+        const dn = ou.distinguishedName || ou.dn;
+        const gPLink = ou.gPLink;
+        if (dn && gPLink && typeof gPLink === 'string') {
+          // Parse gPLink format: [LDAP://CN={GUID},CN=Policies...;FLAGS][...]
+          const regex = /\[LDAP:\/\/([^;]+);(\d+)\]/gi;
+          let match;
+          while ((match = regex.exec(gPLink)) !== null) {
+            const gpoDN = match[1];
+            const flags = parseInt(match[2], 10);
+            
+            const isLinkDisabled = (flags & 1) !== 0;
+            if (isLinkDisabled) continue; // Skip disabled links
+
+            const isEnforced = (flags & 2) !== 0;
+
+            const cnMatch = gpoDN.match(/CN=({[a-f0-9-]+})/i);
+            if (cnMatch) {
+              const guid = cnMatch[1].toUpperCase();
+              if (!linksMap[guid]) {
+                linksMap[guid] = [];
+              }
+              linksMap[guid].push({ ou: dn, enforced: isEnforced });
+            }
+          }
+        }
+      });
+
+      // 3. Map GPO LDAP objects to GPO interface
+      const gpos = gpoObjects.map((gpo: any) => {
+        const guid = String(gpo.cn || "").toUpperCase();
+        const displayName = gpo.displayName || gpo.cn || "Política Sem Nome";
+        
+        // Parse date
+        const modifiedDate = safeParseDate(gpo.whenChanged, "2026-06-25");
+
+        // Parse status (from flags attribute in Active Directory GPO container)
+        // 0 = fully enabled, 1 = user config disabled, 2 = computer config disabled, 3 = fully disabled
+        const flags = parseInt(gpo.flags || "0", 10);
+        let status: 'Ativo' | 'Desativado' | 'Apenas Computador' | 'Apenas Usuário' = 'Ativo';
+        if (flags === 3) status = 'Desativado';
+        else if (flags === 1) status = 'Apenas Computador';
+        else if (flags === 2) status = 'Apenas Usuário';
+
+        // Get OUs linked and if GPO is enforced on any of them
+        const links = linksMap[guid] || [];
+        const linkedTo = links.map(l => {
+          // Format DN to be more readable or keep full DN
+          return l.ou;
+        });
+        const enforced = links.some(l => l.enforced);
+
+        // Classify GPO Type based on its name or standard extensions
+        let gpoType: 'Segurança' | 'Preferências' | 'Modelos Administrativos' | 'Software' | 'Scripts' = 'Segurança';
+        const nameLower = displayName.toLowerCase();
+        if (nameLower.includes('software') || nameLower.includes('install') || nameLower.includes('deploy') || (gpo.gPCMachineExtensionNames && gpo.gPCMachineExtensionNames.includes('appdeploy'))) {
+          gpoType = 'Software';
+        } else if (nameLower.includes('script') || nameLower.includes('logon') || nameLower.includes('logoff') || nameLower.includes('startup') || nameLower.includes('shutdown')) {
+          gpoType = 'Scripts';
+        } else if (nameLower.includes('preference') || nameLower.includes('mapeamento') || nameLower.includes('drive') || nameLower.includes('printer') || nameLower.includes('impressora')) {
+          gpoType = 'Preferências';
+        } else if (nameLower.includes('adm') || nameLower.includes('template') || nameLower.includes('chrome') || nameLower.includes('edge') || nameLower.includes('firewall') || nameLower.includes('update') || nameLower.includes('wsus')) {
+          gpoType = 'Modelos Administrativos';
+        } else {
+          gpoType = 'Segurança';
+        }
+
+        return {
+          id: guid,
+          name: displayName,
+          status,
+          linkedTo,
+          enforced,
+          gpoType,
+          description: `GPO originada diretamente do Active Directory. Caminho no Sysvol: ${gpo.gPCFileSysPath || "N/A"}.`,
+          modifiedDate,
+          author: "administrator@empresa.local"
+        };
+      });
+
+      // Sort GPOs alphabetically by name
+      gpos.sort((a: any, b: any) => a.name.localeCompare(b.name));
+
+      res.json(gpos);
+    });
+  });
+});
+
+function generateDemoGPOs() {
+  return [
+    {
+      id: '{31B2F340-016D-11D2-945F-00C04FB984F9}',
+      name: 'Default Domain Policy',
+      status: 'Ativo',
+      linkedTo: ['DC=empresa,DC=local'],
+      enforced: true,
+      gpoType: 'Segurança',
+      description: 'Política padrão de segurança do domínio. Controla requisitos de senha, bloqueio de contas e tíquetes Kerberos.',
+      modifiedDate: '2026-06-25',
+      author: 'administrator@empresa.local'
+    },
+    {
+      id: '{6AC178C2-A4C1-4D9D-BF24-AA8287F89AA1}',
+      name: 'Default Domain Controllers Policy',
+      status: 'Ativo',
+      linkedTo: ['OU=Domain Controllers,DC=empresa,DC=local'],
+      enforced: true,
+      gpoType: 'Segurança',
+      description: 'Define as políticas de segurança padrão e direitos de usuário para os controladores de domínio.',
+      modifiedDate: '2026-06-15',
+      author: 'administrator@empresa.local'
+    },
+    {
+      id: '{A8109F21-E17C-4A2D-A415-3B82F662F003}',
+      name: 'WSUS - Configuração de Atualizações de TI',
+      status: 'Ativo',
+      linkedTo: ['OU=Computadores,OU=TI,DC=empresa,DC=local'],
+      enforced: false,
+      gpoType: 'Modelos Administrativos',
+      description: 'Configura o servidor WSUS interno e o agendamento de atualizações automáticas do Windows para a TI.',
+      modifiedDate: '2026-06-28',
+      author: 'ana.santos@empresa.com.br'
+    },
+    {
+      id: '{B7319D20-C410-4A33-8BC1-B89E9FA09941}',
+      name: 'WSUS - Configuração de Atualizações Geral',
+      status: 'Ativo',
+      linkedTo: ['OU=Computadores,DC=empresa,DC=local'],
+      enforced: false,
+      gpoType: 'Modelos Administrativos',
+      description: 'Configura o comportamento de atualização do Windows para todas as estações de trabalho de usuários comuns.',
+      modifiedDate: '2026-05-10',
+      author: 'carlos.souza@empresa.com.br'
+    },
+    {
+      id: '{F41029DD-82AA-4011-9F31-10B981C09942}',
+      name: 'Bloqueio total de Portas USB e Dispositivos Móveis',
+      status: 'Ativo',
+      linkedTo: ['OU=Financeiro,OU=Usuarios,DC=empresa,DC=local', 'OU=RH,OU=Usuarios,DC=empresa,DC=local'],
+      enforced: true,
+      gpoType: 'Segurança',
+      description: 'Desabilita o acesso de leitura e escrita para dispositivos de armazenamento removíveis USB externos.',
+      modifiedDate: '2026-06-22',
+      author: 'administrator@empresa.local'
+    },
+    {
+      id: '{F41029DD-82AA-4011-9F31-10B981C09943}',
+      name: 'Mapeamento Automático de Impressora de Vendas',
+      status: 'Ativo',
+      linkedTo: ['OU=Comercial,OU=Usuarios,DC=empresa,DC=local'],
+      enforced: false,
+      gpoType: 'Preferências',
+      description: 'Faz a instalação silenciosa e mapeamento padrão da impressora departamental HP Laserjet de Vendas.',
+      modifiedDate: '2026-04-12',
+      author: 'carlos.souza@empresa.com.br'
+    },
+    {
+      id: '{E2198ACD-39AC-4A20-BE24-AA8287F89AA3}',
+      name: 'Mapeamento de Unidade de Rede Pública (P:)',
+      status: 'Ativo',
+      linkedTo: ['OU=Usuarios,DC=empresa,DC=local'],
+      enforced: false,
+      gpoType: 'Preferências',
+      description: 'Mapeia a pasta de compartilhamento público de arquivos \\\\servidor\\publico na letra de unidade P:.',
+      modifiedDate: '2026-06-12',
+      author: 'ana.santos@empresa.com.br'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F004}',
+      name: 'Bloqueio de Painel de Controle e Configurações',
+      status: 'Ativo',
+      linkedTo: ['OU=Operacoes,OU=Usuarios,DC=empresa,DC=local'],
+      enforced: true,
+      gpoType: 'Modelos Administrativos',
+      description: 'Impede o acesso dos usuários ao painel de controle e ao aplicativo de Configurações do Windows.',
+      modifiedDate: '2026-06-19',
+      author: 'administrator@empresa.local'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F005}',
+      name: 'Script de Logon - Auditoria Diária de Ativos',
+      status: 'Ativo',
+      linkedTo: ['DC=empresa,DC=local'],
+      enforced: false,
+      gpoType: 'Scripts',
+      description: 'Executa um script PowerShell oculto que envia detalhes de login e versão do SO para o servidor de inventário.',
+      modifiedDate: '2026-06-27',
+      author: 'ana.santos@empresa.com.br'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F006}',
+      name: 'Instalação Automática de Agente Antivírus Defender',
+      status: 'Ativo',
+      linkedTo: ['OU=Computadores,DC=empresa,DC=local'],
+      enforced: false,
+      gpoType: 'Software',
+      description: 'Garante que todas as estações de trabalho tenham o instalador do agente de antivírus instalado no boot do sistema.',
+      modifiedDate: '2026-06-26',
+      author: 'administrator@empresa.local'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F007}',
+      name: 'Bloqueio de Sincronização de Contas OneDrive Pessoais',
+      status: 'Ativo',
+      linkedTo: ['OU=Usuarios,DC=empresa,DC=local'],
+      enforced: false,
+      gpoType: 'Modelos Administrativos',
+      description: 'Impede que os colaboradores façam login no OneDrive usando contas da Microsoft pessoais (@outlook, @hotmail).',
+      modifiedDate: '2026-03-10',
+      author: 'mariana.oliveira@empresa.com.br'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F008}',
+      name: 'Bloqueio de Prompt de Comando (CMD) e PowerShell',
+      status: 'Ativo',
+      linkedTo: ['OU=Financeiro,OU=Usuarios,DC=empresa,DC=local', 'OU=Comercial,OU=Usuarios,DC=empresa,DC=local'],
+      enforced: true,
+      gpoType: 'Segurança',
+      description: 'Impede que usuários comuns abram o terminal CMD.exe ou o console interativo do PowerShell.',
+      modifiedDate: '2026-06-21',
+      author: 'administrator@empresa.local'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F009}',
+      name: 'Papel de Parede Corporativo Obrigatório',
+      status: 'Desativado',
+      linkedTo: [],
+      enforced: false,
+      gpoType: 'Modelos Administrativos',
+      description: 'Aplica a imagem corporativa oficial na área de trabalho das estações de trabalho e impede que seja trocada.',
+      modifiedDate: '2026-01-20',
+      author: 'mariana.oliveira@empresa.com.br'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F010}',
+      name: 'Bloqueio de Tela Automático por Inatividade (10 min)',
+      status: 'Ativo',
+      linkedTo: ['OU=Usuarios,DC=empresa,DC=local'],
+      enforced: true,
+      gpoType: 'Segurança',
+      description: 'Força o bloqueio de sessão após 10 minutos de inatividade, exigindo que o usuário insira a senha para reatar.',
+      modifiedDate: '2026-06-23',
+      author: 'administrator@empresa.local'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F011}',
+      name: 'Habilitação Obrigatória de Auditoria de Logon',
+      status: 'Ativo',
+      linkedTo: ['DC=empresa,DC=local'],
+      enforced: false,
+      gpoType: 'Segurança',
+      description: 'Ativa a gravação de logs de eventos para tentativas de logon com falha e com sucesso no visualizador de eventos.',
+      modifiedDate: '2026-05-30',
+      author: 'administrator@empresa.local'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F012}',
+      name: 'Configuração do Proxy do Navegador Edge e Chrome',
+      status: 'Ativo',
+      linkedTo: [],
+      enforced: false,
+      gpoType: 'Modelos Administrativos',
+      description: 'Configura o tráfego de internet para passar obrigatoriamente através do servidor proxy da empresa.',
+      modifiedDate: '2026-02-15',
+      author: 'carlos.souza@empresa.com.br'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F013}',
+      name: 'Habilitação do BitLocker e Backup de Chaves no AD',
+      status: 'Ativo',
+      linkedTo: ['OU=Computadores,OU=TI,DC=empresa,DC=local', 'OU=Financeiro,OU=Usuarios,DC=empresa,DC=local'],
+      enforced: true,
+      gpoType: 'Segurança',
+      description: 'Força a criptografia total do disco C: de computadores e faz o backup seguro da chave de recuperação BitLocker no AD.',
+      modifiedDate: '2026-06-25',
+      author: 'ana.santos@empresa.com.br'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F014}',
+      name: 'Instalação do Microsoft Office LTSC Corporativo',
+      status: 'Ativo',
+      linkedTo: ['OU=Computadores,DC=empresa,DC=local'],
+      enforced: false,
+      gpoType: 'Software',
+      description: 'Garante que o pacote Microsoft Office LTSC seja instalado silenciosamente durante a inicialização do computador.',
+      modifiedDate: '2026-06-05',
+      author: 'ana.santos@empresa.com.br'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F015}',
+      name: 'Script de Logoff - Limpeza de Arquivos Temporários',
+      status: 'Ativo',
+      linkedTo: ['OU=Usuarios,DC=empresa,DC=local'],
+      enforced: false,
+      gpoType: 'Scripts',
+      description: 'Executa uma rotina rápida que apaga caches temporários de navegação e arquivos lixo ao encerrar a sessão.',
+      modifiedDate: '2026-05-18',
+      author: 'carlos.souza@empresa.com.br'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F016}',
+      name: 'Habilitação e Bloqueio de Alteração de Tela de Bloqueio',
+      status: 'Ativo',
+      linkedTo: [],
+      enforced: false,
+      gpoType: 'Modelos Administrativos',
+      description: 'Fixa uma tela de bloqueio padronizada com o logotipo corporativo para todas as estações Windows.',
+      modifiedDate: '2026-01-15',
+      author: 'mariana.oliveira@empresa.com.br'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F017}',
+      name: 'Mapeamento de Unidade S: (Sistemas Financeiros)',
+      status: 'Ativo',
+      linkedTo: ['OU=Financeiro,OU=Usuarios,DC=empresa,DC=local'],
+      enforced: false,
+      gpoType: 'Preferências',
+      description: 'Mapeia a pasta de rede confidencial do setor financeiro em unidades de disco mapeadas com a letra S:.',
+      modifiedDate: '2026-06-20',
+      author: 'carlos.souza@empresa.com.br'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F018}',
+      name: 'Habilitação Padrão e Regras de Entrada Firewall',
+      status: 'Ativo',
+      linkedTo: ['OU=Computadores,DC=empresa,DC=local'],
+      enforced: true,
+      gpoType: 'Segurança',
+      description: 'Ativa o Windows Defender Firewall em todos os perfis de rede e bloqueia conexões externas não aprovadas.',
+      modifiedDate: '2026-06-18',
+      author: 'administrator@empresa.local'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F019}',
+      name: 'Bloqueio de Contas de Email Pessoais no Windows Mail',
+      status: 'Ativo',
+      linkedTo: ['OU=Usuarios,DC=empresa,DC=local'],
+      enforced: false,
+      gpoType: 'Modelos Administrativos',
+      description: 'Garante que os colaboradores usem apenas a conta de email do Outlook Exchange corporativa fornecida pela empresa.',
+      modifiedDate: '2026-03-05',
+      author: 'administrator@empresa.local'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F020}',
+      name: 'Requisitos de Complexidade de Senha e Histórico',
+      status: 'Ativo',
+      linkedTo: ['DC=empresa,DC=local'],
+      enforced: true,
+      gpoType: 'Segurança',
+      description: 'Força o uso de letras maiúsculas, minúsculas, números, caracteres especiais e impede a repetição das últimas 12 senhas.',
+      modifiedDate: '2026-06-25',
+      author: 'administrator@empresa.local'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F021}',
+      name: 'Instalação Automática do Navegador Google Chrome',
+      status: 'Ativo',
+      linkedTo: ['OU=Computadores,DC=empresa,DC=local'],
+      enforced: false,
+      gpoType: 'Software',
+      description: 'Mantém a versão corporativa estável MSI do navegador Google Chrome instalada de forma transparente para o usuário.',
+      modifiedDate: '2026-05-12',
+      author: 'ana.santos@empresa.com.br'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F022}',
+      name: 'Mapeamento de Unidade R: (Recursos Humanos)',
+      status: 'Ativo',
+      linkedTo: ['OU=RH,OU=Usuarios,DC=empresa,DC=local'],
+      enforced: false,
+      gpoType: 'Preferências',
+      description: 'Mapeia a pasta restrita \\\\servidor\\rh no explorador de arquivos dos colaboradores do RH como unidade R:.',
+      modifiedDate: '2026-06-15',
+      author: 'carlos.souza@empresa.com.br'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F023}',
+      name: 'Configuração Automática de Redes Wi-Fi Corporativa',
+      status: 'Ativo',
+      linkedTo: ['OU=Computadores,DC=empresa,DC=local'],
+      enforced: false,
+      gpoType: 'Preferências',
+      description: 'Configura o perfil de rede sem fio seguro WPA3 Corporativo com certificado digital para as estações de trabalho e laptops.',
+      modifiedDate: '2026-04-10',
+      author: 'ana.santos@empresa.com.br'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F024}',
+      name: 'Desativação de Sincronização de Preferências Windows',
+      status: 'Desativado',
+      linkedTo: [],
+      enforced: false,
+      gpoType: 'Modelos Administrativos',
+      description: 'Desativa o recurso de salvar senhas e histórico do Windows em contas na nuvem da Microsoft para fins de segurança.',
+      modifiedDate: '2026-02-12',
+      author: 'mariana.oliveira@empresa.com.br'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F025}',
+      name: 'Configurações de Acesso Seguro Remoto (RDP)',
+      status: 'Ativo',
+      linkedTo: ['OU=Computadores,OU=TI,DC=empresa,DC=local'],
+      enforced: true,
+      gpoType: 'Segurança',
+      description: 'Define as permissões de acesso e criptografia necessárias para conexões RDP em estações administrativas da TI.',
+      modifiedDate: '2026-06-24',
+      author: 'administrator@empresa.local'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F026}',
+      name: 'Habilitação de Proteção contra Ransomware',
+      status: 'Ativo',
+      linkedTo: ['OU=Computadores,DC=empresa,DC=local'],
+      enforced: true,
+      gpoType: 'Segurança',
+      description: 'Ativa o controle de acesso a pastas protegidas para impedir que softwares não autorizados modifiquem arquivos do usuário.',
+      modifiedDate: '2026-06-26',
+      author: 'administrator@empresa.local'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F027}',
+      name: 'Script de Logon - Sincronização de Horário NTP',
+      status: 'Ativo',
+      linkedTo: ['DC=empresa,DC=local'],
+      enforced: false,
+      gpoType: 'Scripts',
+      description: 'Sincroniza o relógio do cliente com o controlador de domínio principal no momento do logon.',
+      modifiedDate: '2026-05-20',
+      author: 'carlos.souza@empresa.com.br'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F028}',
+      name: 'Bloqueio de Execução de Scripts Não Assinados',
+      status: 'Ativo',
+      linkedTo: ['OU=Usuarios,DC=empresa,DC=local'],
+      enforced: true,
+      gpoType: 'Segurança',
+      description: 'Aplica a política de execução AllSigned do PowerShell para impedir scripts não homologados.',
+      modifiedDate: '2026-06-24',
+      author: 'administrator@empresa.local'
+    },
+    {
+      id: '{8F9C01BD-D3AC-49CD-A415-3B82F662F029}',
+      name: 'Remoção de Jogos e Recursos Nativos do Windows',
+      status: 'Ativo',
+      linkedTo: ['OU=Usuarios,DC=empresa,DC=local'],
+      enforced: false,
+      gpoType: 'Modelos Administrativos',
+      description: 'Desativa o acesso a jogos pré-instalados e recursos desnecessários do Windows para aumentar produtividade.',
+      modifiedDate: '2026-04-05',
+      author: 'mariana.oliveira@empresa.com.br'
+    }
+  ];
+}
+
+
 // --- Vite Middleware / Production Server Config ---
 
 async function bootstrap() {

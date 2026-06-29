@@ -3,12 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   ShieldCheck, 
   Search, 
   Download, 
-  Plus, 
   Link2, 
   Link2Off, 
   CheckCircle2, 
@@ -22,7 +21,11 @@ import {
   User,
   Activity,
   AlertTriangle,
-  FolderTree
+  FolderTree,
+  Loader2,
+  RefreshCw,
+  Eye,
+  Lock
 } from 'lucide-react';
 import { GPO } from '../types';
 import { 
@@ -34,238 +37,60 @@ import {
   Bar, 
   XAxis, 
   YAxis, 
-  Tooltip, 
-  Legend 
+  Tooltip 
 } from 'recharts';
 
 export default function GroupPolicies() {
-  // Simulated database of default GPOs
-  const [gpos, setGpos] = useState<GPO[]>([
-    {
-      id: 'gpo-1',
-      name: 'Default Domain Policy',
-      status: 'Ativo',
-      linkedTo: ['DC=empresa,DC=local'],
-      enforced: true,
-      gpoType: 'Segurança',
-      description: 'Política padrão do domínio. Define requisitos de senha, bloqueio de conta e criptografia Kerberos.',
-      modifiedDate: '2026-05-12 14:32:10',
-      author: 'administrator@empresa.local'
-    },
-    {
-      id: 'gpo-2',
-      name: 'WSUS - Atualizações Automáticas de TI',
-      status: 'Ativo',
-      linkedTo: ['OU=Computadores,OU=TI'],
-      enforced: false,
-      gpoType: 'Modelos Administrativos',
-      description: 'Configura os computadores para buscarem atualizações críticas do Windows Update no servidor interno de WSUS.',
-      modifiedDate: '2026-06-20 09:15:00',
-      author: 'ana.santos@empresa.com.br'
-    },
-    {
-      id: 'gpo-3',
-      name: 'Bloqueio de Dispositivos USB de Armazenamento',
-      status: 'Ativo',
-      linkedTo: ['OU=Usuarios,OU=TI', 'OU=Financeiro,OU=Usuarios'],
-      enforced: true,
-      gpoType: 'Segurança',
-      description: 'Garante o bloqueio de leitura/escrita em pendrives e dispositivos USB não autorizados por questões de conformidade LGPD.',
-      modifiedDate: '2026-06-18 16:45:22',
-      author: 'administrator@empresa.local'
-    },
-    {
-      id: 'gpo-4',
-      name: 'Mapeamento Automático de Impressoras e Rede',
-      status: 'Ativo',
-      linkedTo: ['OU=Usuarios'],
-      enforced: false,
-      gpoType: 'Preferências',
-      description: 'Mapeia as impressoras departamentais e unidades compartilhadas de arquivos (Z: e S:) no logon do usuário.',
-      modifiedDate: '2026-04-10 11:20:05',
-      author: 'carlos.souza@empresa.com.br'
-    },
-    {
-      id: 'gpo-5',
-      name: 'Papel de Parede Corporativo Padrão',
-      status: 'Desativado',
-      linkedTo: [], // Unlinked
-      enforced: false,
-      gpoType: 'Modelos Administrativos',
-      description: 'Aplica o papel de parede oficial e impede que os usuários alterem o fundo de tela da área de trabalho.',
-      modifiedDate: '2026-03-01 08:00:00',
-      author: 'mariana.oliveira@empresa.com.br'
-    },
-    {
-      id: 'gpo-6',
-      name: 'Desativação de Painel de Controle e Prompt (CMD)',
-      status: 'Ativo',
-      linkedTo: ['OU=Financeiro,OU=Usuarios'],
-      enforced: true,
-      gpoType: 'Segurança',
-      description: 'Impede o acesso do usuário comum às configurações administrativas do Windows e ao interpretador de comandos.',
-      modifiedDate: '2026-06-22 10:05:40',
-      author: 'administrator@empresa.local'
-    },
-    {
-      id: 'gpo-7',
-      name: 'Script de Logon - Auditoria Diária de Inventário',
-      status: 'Ativo',
-      linkedTo: ['DC=empresa,DC=local'],
-      enforced: false,
-      gpoType: 'Scripts',
-      description: 'Executa um script PowerShell silencioso para coletar informações básicas de hardware e software das estações.',
-      modifiedDate: '2026-05-30 17:50:11',
-      author: 'ana.santos@empresa.com.br'
-    },
-    {
-      id: 'gpo-8',
-      name: 'Configuração Automática de Proxy de Navegador',
-      status: 'Ativo',
-      linkedTo: [], // Unlinked
-      enforced: false,
-      gpoType: 'Preferências',
-      description: 'Define as configurações padrão do proxy de internet de maneira transparente para o Microsoft Edge e Chrome.',
-      modifiedDate: '2026-01-15 14:30:00',
-      author: 'carlos.souza@empresa.com.br'
-    },
-    {
-      id: 'gpo-9',
-      name: 'Instalação Silenciosa de Agente de Endpoint Antivírus',
-      status: 'Ativo',
-      linkedTo: ['OU=Computadores,OU=TI'],
-      enforced: false,
-      gpoType: 'Software',
-      description: 'Garante que o instalador MSI do antivírus corporativo seja implantado automaticamente nas estações de trabalho.',
-      modifiedDate: '2026-06-25 15:10:55',
-      author: 'ana.santos@empresa.com.br'
-    },
-    {
-      id: 'gpo-10',
-      name: 'Bloqueio de Sincronização do OneDrive Pessoal',
-      status: 'Desativado',
-      linkedTo: [], // Unlinked
-      enforced: false,
-      gpoType: 'Modelos Administrativos',
-      description: 'Impede os usuários de vincularem suas contas pessoais do OneDrive no computador corporativo.',
-      modifiedDate: '2026-02-12 09:40:18',
-      author: 'mariana.oliveira@empresa.com.br'
-    }
-  ]);
-
-  // Form State for creating new GPO
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [newGpoName, setNewGpoName] = useState('');
-  const [newGpoType, setNewGpoType] = useState<GPO['gpoType']>('Segurança');
-  const [newGpoDescription, setNewGpoDescription] = useState('');
-  const [newGpoStatus, setNewGpoStatus] = useState<GPO['status']>('Ativo');
-  const [newGpoLinkOU, setNewGpoLinkOU] = useState('');
-  const [newGpoEnforced, setNewGpoEnforced] = useState(false);
+  // GPOs State (fetched from API)
+  const [gpos, setGpos] = useState<GPO[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Search and Filter States
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterUsage, setFilterUsage] = useState<'all' | 'in-use' | 'not-in-use'>('all');
-  const [selectedGpoId, setSelectedGpoId] = useState<string | null>('gpo-1');
+  const [selectedGpoId, setSelectedGpoId] = useState<string | null>(null);
 
-  // List of standard Active Directory OUs for easy linking
-  const availableOUs = [
-    'DC=empresa,DC=local',
-    'OU=Usuarios',
-    'OU=Computadores,OU=TI',
-    'OU=Tecnologia,OU=Usuarios',
-    'OU=Financeiro,OU=Usuarios',
-    'OU=RH,OU=Usuarios'
-  ];
+  // Fetch GPOs from backend
+  const fetchGpos = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/ad/gpos');
+      if (!response.ok) {
+        throw new Error(`Erro ao carregar diretivas: ${response.statusText}`);
+      }
+      const data = await response.json();
+      setGpos(data);
+      if (data.length > 0) {
+        setSelectedGpoId(data[0].id);
+      } else {
+        setSelectedGpoId(null);
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Erro inesperado ao buscar as diretivas de grupo.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  // Calculations for KPI Cards
-  const totalGpos = gpos.length;
-  const inUseGpos = gpos.filter(g => g.linkedTo.length > 0).length;
-  const notInUseGpos = totalGpos - inUseGpos;
-  const enforcedGpos = gpos.filter(g => g.enforced).length;
+  useEffect(() => {
+    fetchGpos();
+  }, []);
 
   // Selected GPO Object
   const selectedGpo = useMemo(() => {
     return gpos.find(g => g.id === selectedGpoId) || null;
   }, [gpos, selectedGpoId]);
 
-  // Handle toggling GPO status
-  const handleToggleStatus = (id: string) => {
-    setGpos(prev => prev.map(g => {
-      if (g.id === id) {
-        const nextStatus: GPO['status'] = g.status === 'Ativo' ? 'Desativado' : 'Ativo';
-        return {
-          ...g,
-          status: nextStatus,
-          modifiedDate: new Date().toISOString().replace('T', ' ').substring(0, 19)
-        };
-      }
-      return g;
-    }));
-  };
-
-  // Handle toggling GPO enforcement
-  const handleToggleEnforced = (id: string) => {
-    setGpos(prev => prev.map(g => {
-      if (g.id === id) {
-        return {
-          ...g,
-          enforced: !g.enforced,
-          modifiedDate: new Date().toISOString().replace('T', ' ').substring(0, 19)
-        };
-      }
-      return g;
-    }));
-  };
-
-  // Handle linking/unlinking an OU
-  const handleToggleLinkOU = (id: string, ou: string) => {
-    setGpos(prev => prev.map(g => {
-      if (g.id === id) {
-        const isAlreadyLinked = g.linkedTo.includes(ou);
-        const nextLinked = isAlreadyLinked 
-          ? g.linkedTo.filter(item => item !== ou)
-          : [...g.linkedTo, ou];
-        return {
-          ...g,
-          linkedTo: nextLinked,
-          modifiedDate: new Date().toISOString().replace('T', ' ').substring(0, 19)
-        };
-      }
-      return g;
-    }));
-  };
-
-  // Handle adding a new GPO
-  const handleCreateGpo = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newGpoName.trim()) return;
-
-    const newGpo: GPO = {
-      id: `gpo-${Date.now()}`,
-      name: newGpoName,
-      status: newGpoStatus,
-      linkedTo: newGpoLinkOU ? [newGpoLinkOU] : [],
-      enforced: newGpoEnforced,
-      gpoType: newGpoType,
-      description: newGpoDescription || 'Nenhuma descrição fornecida.',
-      modifiedDate: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      author: 'administrator@empresa.local'
-    };
-
-    setGpos(prev => [newGpo, ...prev]);
-    setSelectedGpoId(newGpo.id);
-    setShowAddForm(false);
-    
-    // Clear Form fields
-    setNewGpoName('');
-    setNewGpoType('Segurança');
-    setNewGpoDescription('');
-    setNewGpoStatus('Ativo');
-    setNewGpoLinkOU('');
-    setNewGpoEnforced(false);
-  };
+  // Calculations for KPI Cards
+  const totalGpos = gpos.length;
+  const inUseGpos = gpos.filter(g => g.linkedTo.length > 0).length;
+  const notInUseGpos = totalGpos - inUseGpos;
+  const enforcedGpos = gpos.filter(g => g.enforced).length;
 
   // Filter GPOs based on query search and selectors
   const filteredGpos = useMemo(() => {
@@ -287,7 +112,7 @@ export default function GroupPolicies() {
 
   // CSV Export of the current list of GPOs
   const handleExportCSV = () => {
-    const headers = ['ID', 'Nome da GPO', 'Tipo de GPO', 'Status', 'GPO Imposta', 'Vinculos (OUs)', 'Ultima Modificacao', 'Autor', 'Descricao'];
+    const headers = ['ID/GUID', 'Nome da GPO', 'Tipo de GPO', 'Status', 'GPO Imposta', 'Vinculos (OUs)', 'Ultima Modificacao', 'Autor', 'Descricao'];
     const csvRows = [headers.join(';')];
 
     filteredGpos.forEach(g => {
@@ -361,8 +186,56 @@ export default function GroupPolicies() {
     })).sort((a, b) => b.vinculos - a.vinculos);
   }, [gpos]);
 
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 bg-white rounded-2xl border border-slate-100 shadow-xs" id="gpo-loading">
+        <Loader2 className="w-10 h-10 text-blue-600 animate-spin mb-4" />
+        <h3 className="text-sm font-bold text-slate-800">Carregando Políticas de Grupo</h3>
+        <p className="text-slate-400 text-xs mt-1">Buscando diretivas reais diretamente no Sysvol do Active Directory...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-xs p-8 text-center flex flex-col items-center justify-center py-16" id="gpo-error">
+        <AlertTriangle className="w-12 h-12 text-rose-500 mb-4 animate-bounce" />
+        <h3 className="text-sm font-bold text-slate-800">Erro ao Carregar GPOs</h3>
+        <p className="text-slate-500 text-xs mt-1 max-w-md leading-relaxed">{error}</p>
+        <button 
+          onClick={fetchGpos}
+          className="mt-5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          Tentar Novamente
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-6" id="group-policies-section">
+      
+      {/* Read-Only Mode Banner */}
+      <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-3xs">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+            <Lock className="w-4 h-4" />
+          </div>
+          <div>
+            <h4 className="text-xs font-bold text-amber-900 leading-tight">Módulo de Leitura e Auditoria de GPOs</h4>
+            <p className="text-[10.5px] text-amber-700 mt-0.5">As diretivas exibidas abaixo são carregadas diretamente do domínio. Modificações e criações são desativadas por segurança.</p>
+          </div>
+        </div>
+        
+        <button
+          onClick={fetchGpos}
+          className="text-[11px] font-bold text-amber-800 hover:text-amber-950 bg-white hover:bg-amber-100/50 px-2.5 py-1.5 rounded-lg border border-amber-200 flex items-center gap-1.5 self-start sm:self-auto cursor-pointer transition-all"
+        >
+          <RefreshCw className="w-3 h-3" />
+          Sincronizar Sysvol
+        </button>
+      </div>
       
       {/* Visual Metric KPI Cards Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -373,7 +246,7 @@ export default function GroupPolicies() {
           <div>
             <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Total de GPOs</p>
             <h4 className="text-2xl font-bold font-display text-slate-800 mt-0.5">{totalGpos}</h4>
-            <span className="text-[10px] text-slate-500">Cadastradas no Sysvol</span>
+            <span className="text-[10px] text-slate-500">Mapeadas no AD</span>
           </div>
         </div>
 
@@ -385,7 +258,7 @@ export default function GroupPolicies() {
             <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">GPOs em Uso</p>
             <h4 className="text-2xl font-bold font-display text-slate-800 mt-0.5">{inUseGpos}</h4>
             <span className="text-[10px] text-emerald-600 font-semibold">
-              {((inUseGpos / totalGpos) * 100).toFixed(0)}% Vinculadas a OUs
+              {totalGpos > 0 ? ((inUseGpos / totalGpos) * 100).toFixed(0) : 0}% Vinculadas a OUs
             </span>
           </div>
         </div>
@@ -397,7 +270,7 @@ export default function GroupPolicies() {
           <div>
             <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Não Utilizadas</p>
             <h4 className="text-2xl font-bold font-display text-slate-800 mt-0.5">{notInUseGpos}</h4>
-            <span className="text-[10px] text-slate-500">Órfãs ou sem vínculo</span>
+            <span className="text-[10px] text-slate-500">Sem link ativo</span>
           </div>
         </div>
 
@@ -533,123 +406,20 @@ export default function GroupPolicies() {
         <div className="xl:col-span-2 bg-white rounded-2xl border border-slate-100 shadow-xs flex flex-col min-h-[480px]">
           
           {/* Header Actions */}
-          <div className="p-4 border-b border-slate-50 flex flex-col md:flex-row gap-4 items-stretch md:items-center justify-between">
+          <div className="p-4 border-b border-slate-50 flex flex-col sm:flex-row gap-4 items-stretch sm:items-center justify-between">
             <div className="flex items-center gap-2">
               <Settings className="w-4 h-4 text-blue-500" />
-              <h2 className="text-sm font-bold text-slate-800">Políticas Ativas no Sysvol</h2>
+              <h2 className="text-sm font-bold text-slate-800">Políticas Ativas no Active Directory</h2>
             </div>
 
-            <div className="flex items-center gap-2 self-end md:self-auto">
-              <button
-                onClick={handleExportCSV}
-                className="text-xs font-semibold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all border border-slate-200 cursor-pointer"
-              >
-                <Download className="w-3.5 h-3.5" />
-                Exportar Lista
-              </button>
-              
-              <button
-                onClick={() => setShowAddForm(!showAddForm)}
-                className="text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Nova GPO
-              </button>
-            </div>
+            <button
+              onClick={handleExportCSV}
+              className="text-xs font-semibold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all border border-slate-200 cursor-pointer self-end sm:self-auto"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Exportar Lista (.CSV)
+            </button>
           </div>
-
-          {/* New GPO Form */}
-          {showAddForm && (
-            <form onSubmit={handleCreateGpo} className="p-4 bg-blue-50/40 border-b border-blue-50 flex flex-col gap-4 animate-fade-in">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-blue-800 flex items-center gap-1.5">
-                  <Plus className="w-4 h-4" /> Criar Novo Objeto de Política de Grupo (GPO)
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setShowAddForm(false)}
-                  className="text-slate-400 hover:text-slate-600 text-xs font-semibold"
-                >
-                  Cancelar
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-semibold text-slate-500">Nome do Objeto GPO</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="ex: Bloqueio de Jogos e Rede Social"
-                    value={newGpoName}
-                    onChange={e => setNewGpoName(e.target.value)}
-                    className="text-xs px-3 py-1.5 border border-slate-200 rounded-md outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-semibold text-slate-500">Tipo de Configuração</label>
-                  <select
-                    value={newGpoType}
-                    onChange={e => setNewGpoType(e.target.value as GPO['gpoType'])}
-                    className="text-xs px-3 py-1.5 border border-slate-200 rounded-md outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-                  >
-                    <option value="Segurança">Segurança</option>
-                    <option value="Preferências">Preferências</option>
-                    <option value="Modelos Administrativos">Modelos Administrativos</option>
-                    <option value="Software">Software</option>
-                    <option value="Scripts">Scripts</option>
-                  </select>
-                </div>
-
-                <div className="flex flex-col gap-1 md:col-span-2">
-                  <label className="text-[11px] font-semibold text-slate-500">Descrição / Objetivo da Política</label>
-                  <input
-                    type="text"
-                    placeholder="Garante o bloqueio de sites e executáveis específicos de jogos..."
-                    value={newGpoDescription}
-                    onChange={e => setNewGpoDescription(e.target.value)}
-                    className="text-xs px-3 py-1.5 border border-slate-200 rounded-md outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-[11px] font-semibold text-slate-500">Vincular Imediatamente à Unidade (Opcional)</label>
-                  <select
-                    value={newGpoLinkOU}
-                    onChange={e => setNewGpoLinkOU(e.target.value)}
-                    className="text-xs px-3 py-1.5 border border-slate-200 rounded-md outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-                  >
-                    <option value="">Não vincular ainda (manter desvinculada)</option>
-                    {availableOUs.map(ou => (
-                      <option key={ou} value={ou}>{ou}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="flex items-center gap-4 mt-4">
-                  <label className="flex items-center gap-1.5 text-xs text-slate-600 font-medium cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={newGpoEnforced}
-                      onChange={e => setNewGpoEnforced(e.target.checked)}
-                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    Forçar Aplicação (Enforced)
-                  </label>
-
-                  <div className="flex gap-2 text-xs ml-auto">
-                    <button
-                      type="submit"
-                      className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 font-bold text-white rounded-md cursor-pointer"
-                    >
-                      Salvar Política
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </form>
-          )}
 
           {/* Search and Advanced Filter Tools */}
           <div className="p-4 bg-slate-50/60 border-b border-slate-50 flex flex-col sm:flex-row gap-3">
@@ -668,7 +438,7 @@ export default function GroupPolicies() {
               <select
                 value={filterType}
                 onChange={e => setFilterType(e.target.value)}
-                className="text-xs px-3 py-2 border border-slate-200 rounded-lg bg-white outline-none"
+                className="text-xs px-3 py-2 border border-slate-200 rounded-lg bg-white outline-none cursor-pointer"
               >
                 <option value="all">Todos os Tipos</option>
                 <option value="Segurança">Segurança</option>
@@ -681,9 +451,9 @@ export default function GroupPolicies() {
               <select
                 value={filterStatus}
                 onChange={e => setFilterStatus(e.target.value)}
-                className="text-xs px-3 py-2 border border-slate-200 rounded-lg bg-white outline-none"
+                className="text-xs px-3 py-2 border border-slate-200 rounded-lg bg-white outline-none cursor-pointer"
               >
-                <option value="all">Status (Ativo/Desat.)</option>
+                <option value="all">Status (Todas)</option>
                 <option value="Ativo">Ativas</option>
                 <option value="Desativado">Desativadas</option>
               </select>
@@ -691,9 +461,9 @@ export default function GroupPolicies() {
               <select
                 value={filterUsage}
                 onChange={e => setFilterUsage(e.target.value as any)}
-                className="text-xs px-3 py-2 border border-slate-200 rounded-lg bg-white outline-none"
+                className="text-xs px-3 py-2 border border-slate-200 rounded-lg bg-white outline-none cursor-pointer"
               >
-                <option value="all">Vínculo (Todos)</option>
+                <option value="all">Vínculo (Todas)</option>
                 <option value="in-use">Vinculadas (Em Uso)</option>
                 <option value="not-in-use">Não Utilizadas</option>
               </select>
@@ -711,12 +481,12 @@ export default function GroupPolicies() {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50/30 text-slate-400 text-[10px] font-bold uppercase tracking-wider border-b border-slate-50">
-                    <th className="py-3 px-4 font-semibold">Política / Diretiva do Sysvol</th>
+                    <th className="py-3 px-4 font-semibold">Política / Diretiva de Grupo</th>
                     <th className="py-3 px-4 font-semibold">Categoria</th>
                     <th className="py-3 px-4 font-semibold text-center">Status</th>
                     <th className="py-3 px-4 font-semibold text-center">Uso / Vínculo</th>
                     <th className="py-3 px-4 font-semibold text-center">GPO Imposta</th>
-                    <th className="py-3 px-4 font-semibold text-right">Ação</th>
+                    <th className="py-3 px-4 font-semibold text-right">Auditoria</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
@@ -729,11 +499,11 @@ export default function GroupPolicies() {
                       }`}
                     >
                       <td className="py-3.5 px-4 max-w-xs">
-                        <div className="font-semibold text-slate-800 text-xs truncate" title={g.name}>
+                        <div className="font-semibold text-slate-800 text-xs truncate animate-fade-in" title={g.name}>
                           {g.name}
                         </div>
-                        <div className="text-[10px] text-slate-400 mt-0.5 truncate" title={g.description}>
-                          {g.description}
+                        <div className="text-[10px] text-slate-400 mt-0.5 truncate font-mono" title={g.id}>
+                          {g.id}
                         </div>
                       </td>
                       <td className="py-3.5 px-4 shrink-0">
@@ -749,11 +519,11 @@ export default function GroupPolicies() {
                       </td>
                       <td className="py-3.5 px-4 text-center">
                         {g.status === 'Ativo' ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full">
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-0.5 rounded-full">
                             <CheckCircle2 className="w-3 h-3" /> Ativo
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full">
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-500 bg-slate-100 border border-slate-200 px-2.5 py-0.5 rounded-full">
                             <XCircle className="w-3 h-3" /> Desativado
                           </span>
                         )}
@@ -761,29 +531,28 @@ export default function GroupPolicies() {
                       <td className="py-3.5 px-4 text-center">
                         {g.linkedTo.length > 0 ? (
                           <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-full">
-                            <Link2 className="w-3 h-3" /> {g.linkedTo.length} {g.linkedTo.length === 1 ? 'Vínculo' : 'Vínculos'}
+                            <Link2 className="w-3 h-3" /> {g.linkedTo.length} {g.linkedTo.length === 1 ? 'Link' : 'Links'}
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-full">
-                            <Link2Off className="w-3 h-3" /> Não Utilizada
+                            <Link2Off className="w-3 h-3" /> Sem Link
                           </span>
                         )}
                       </td>
                       <td className="py-3.5 px-4 text-center">
-                        <span className={`text-[11px] font-semibold ${g.enforced ? 'text-rose-600' : 'text-slate-400'}`}>
-                          {g.enforced ? 'Imposta (Sim)' : 'Não'}
+                        <span className={`text-[11px] font-bold ${g.enforced ? 'text-rose-600 bg-rose-50 border border-rose-100 px-1.5 py-0.5 rounded' : 'text-slate-400'}`}>
+                          {g.enforced ? 'Sim (Forçada)' : 'Não'}
                         </span>
                       </td>
-                      <td className="py-3.5 px-4 text-right" onClick={e => e.stopPropagation()}>
+                      <td className="py-3.5 px-4 text-right">
                         <button
-                          onClick={() => handleToggleStatus(g.id)}
-                          className={`text-[10px] font-bold px-2 py-1 rounded transition-colors ${
-                            g.status === 'Ativo' 
-                              ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200' 
-                              : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200'
-                          } cursor-pointer`}
+                          className="text-[11px] text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1 ml-auto cursor-pointer"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedGpoId(g.id);
+                          }}
                         >
-                          {g.status === 'Ativo' ? 'Desativar' : 'Ativar'}
+                          <Eye className="w-3.5 h-3.5" /> Analisar
                         </button>
                       </td>
                     </tr>
@@ -794,8 +563,8 @@ export default function GroupPolicies() {
           </div>
         </div>
 
-        {/* Right Side: GPO Linked OUs & Interactive Controls */}
-        <div className="xl:col-span-1 flex flex-col gap-4">
+        {/* Right Side: GPO Linked OUs & Detailed Properties */}
+        <div className="xl:col-span-1 flex flex-col gap-4 animate-fade-in">
           
           {selectedGpo ? (
             <div className="bg-white rounded-2xl border border-slate-100 shadow-xs p-5 flex flex-col min-h-[480px]">
@@ -810,25 +579,25 @@ export default function GroupPolicies() {
                 }`}>
                   <ShieldCheck className="w-5 h-5" />
                 </div>
-                <div className="min-w-0">
-                  <h3 className="font-bold text-slate-800 text-sm tracking-tight leading-tight">
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-bold text-slate-800 text-sm tracking-tight leading-tight select-all">
                     {selectedGpo.name}
                   </h3>
-                  <span className="text-[10px] text-slate-400 font-mono mt-1 block">
-                    ID: {selectedGpo.id}
+                  <span className="text-[9px] text-slate-400 font-mono mt-1 block select-all">
+                    GUID: {selectedGpo.id}
                   </span>
                 </div>
               </div>
 
               {/* GPO properties */}
-              <div className="my-4 flex flex-col gap-3 flex-1 overflow-y-auto pr-1">
+              <div className="my-4 flex flex-col gap-4 flex-1 overflow-y-auto pr-1">
                 
                 {/* Description */}
                 <div>
                   <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
-                    <Info className="w-3 h-3 text-slate-400" /> Descrição da Diretiva
+                    <Info className="w-3 h-3 text-slate-400" /> Detalhes do Escopo
                   </h4>
-                  <p className="text-xs text-slate-600 bg-slate-50/50 border border-slate-100 p-2.5 rounded-lg leading-relaxed">
+                  <p className="text-xs text-slate-600 bg-slate-50/50 border border-slate-100 p-2.5 rounded-lg leading-relaxed select-all">
                     {selectedGpo.description}
                   </p>
                 </div>
@@ -844,20 +613,20 @@ export default function GroupPolicies() {
                   <div className="flex flex-col gap-0.5">
                     <span className="text-[9px] font-semibold text-slate-400 uppercase">Prevalência</span>
                     <span className={`text-xs font-bold ${selectedGpo.enforced ? 'text-rose-600' : 'text-slate-500'}`}>
-                      {selectedGpo.enforced ? 'Forçado (Enforced)' : 'Normal'}
+                      {selectedGpo.enforced ? 'Forçado (Enforced)' : 'Herdada / Normal'}
                     </span>
                   </div>
                   <div className="flex flex-col gap-0.5">
                     <span className="text-[9px] font-semibold text-slate-400 uppercase flex items-center gap-1">
-                      <Calendar className="w-3 h-3 text-slate-400" /> Modificação
+                      <Calendar className="w-3 h-3 text-slate-400" /> Sincronizada
                     </span>
                     <span className="text-xs text-slate-700 font-mono">
-                      {selectedGpo.modifiedDate.split(' ')[0]}
+                      {selectedGpo.modifiedDate}
                     </span>
                   </div>
                   <div className="flex flex-col gap-0.5">
                     <span className="text-[9px] font-semibold text-slate-400 uppercase flex items-center gap-1">
-                      <User className="w-3 h-3 text-slate-400" /> Autor
+                      <User className="w-3 h-3 text-slate-400" /> Dono Padrão
                     </span>
                     <span className="text-xs text-slate-700 truncate" title={selectedGpo.author}>
                       {selectedGpo.author.split('@')[0]}
@@ -865,65 +634,47 @@ export default function GroupPolicies() {
                   </div>
                 </div>
 
-                {/* Toggle Actions section */}
-                <div className="flex items-center gap-2 mt-1">
-                  <button
-                    onClick={() => handleToggleEnforced(selectedGpo.id)}
-                    className={`flex-1 text-center py-1.5 px-3 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
-                      selectedGpo.enforced 
-                        ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100' 
-                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    {selectedGpo.enforced ? 'Remover Forçamento' : 'Forçar Aplicação'}
-                  </button>
-                </div>
-
                 {/* Linked OUs management */}
-                <div className="mt-2 border-t border-slate-50 pt-3">
-                  <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
-                    <FolderTree className="w-3 h-3 text-slate-400" /> Vínculos de Unidades Organizacionais (OUs)
+                <div className="border-t border-slate-50 pt-3 flex flex-col flex-1 min-h-[180px]">
+                  <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1 shrink-0">
+                    <FolderTree className="w-3 h-3 text-slate-400" /> Unidades Organizacionais Vinculadas ({selectedGpo.linkedTo.length})
                   </h4>
                   
                   {/* Active linked items */}
-                  <div className="flex flex-col gap-1.5 max-h-[160px] overflow-y-auto">
-                    {availableOUs.map(ou => {
-                      const isLinked = selectedGpo.linkedTo.includes(ou);
-                      return (
+                  <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-1.5 min-h-0">
+                    {selectedGpo.linkedTo.length === 0 ? (
+                      <div className="flex-1 bg-slate-50/50 border border-dashed border-slate-200 rounded-lg p-6 text-center flex flex-col items-center justify-center gap-1.5">
+                        <Link2Off className="w-6 h-6 text-slate-400" />
+                        <span className="text-[11px] font-bold text-slate-500">GPO Órfã (Desvinculada)</span>
+                        <span className="text-[10px] text-slate-400">Esta política de grupo não está associada a nenhuma OU ativa e não afeta usuários ou computadores.</span>
+                      </div>
+                    ) : (
+                      selectedGpo.linkedTo.map((ou, idx) => (
                         <div 
-                          key={ou} 
-                          onClick={() => handleToggleLinkOU(selectedGpo.id, ou)}
-                          className={`flex items-center justify-between p-2 rounded-lg border text-xs cursor-pointer transition-all ${
-                            isLinked 
-                              ? 'bg-blue-50/50 border-blue-200 text-blue-800 font-semibold' 
-                              : 'bg-white border-slate-100 text-slate-500 hover:bg-slate-50'
-                          }`}
+                          key={idx} 
+                          className="flex items-center justify-between p-2 rounded-lg border bg-blue-50/30 border-blue-100 text-blue-900 text-xs"
                         >
-                          <span className="font-mono text-[10.5px] truncate" title={ou}>{ou}</span>
-                          {isLinked ? (
-                            <span className="text-[10px] font-bold text-blue-600 shrink-0 flex items-center gap-1 bg-white px-2 py-0.5 rounded-full border border-blue-100 shadow-3xs">
-                              Vinculado
-                            </span>
-                          ) : (
-                            <span className="text-[10px] text-slate-400 shrink-0 hover:text-slate-600">
-                              Clique para Vincular
-                            </span>
-                          )}
+                          <span className="font-mono text-[10px] truncate select-all flex-1 pr-2" title={ou}>
+                            {ou}
+                          </span>
+                          <span className="text-[9px] font-bold text-blue-700 bg-white px-1.5 py-0.5 rounded-full border border-blue-100 shadow-3xs shrink-0 flex items-center gap-1">
+                            <Link2 className="w-2.5 h-2.5" /> Vinculada
+                          </span>
                         </div>
-                      );
-                    })}
+                      ))
+                    )}
                   </div>
                 </div>
 
               </div>
 
               {/* Status footer banner */}
-              <div className="mt-auto bg-slate-50 border border-slate-100 p-2.5 rounded-xl flex items-center gap-2">
+              <div className="mt-auto bg-slate-50 border border-slate-100 p-2.5 rounded-xl flex items-center gap-2 shrink-0">
                 <Info className="w-4 h-4 text-slate-400 shrink-0" />
                 <span className="text-[10.5px] text-slate-500 leading-tight">
                   {selectedGpo.status === 'Ativo' && selectedGpo.linkedTo.length > 0 
-                    ? `Esta GPO está em vigor para todos os objetos contidos nas ${selectedGpo.linkedTo.length} OUs vinculadas.` 
-                    : 'Esta política de grupo está offline no momento ou sem vínculos de OU para aplicação.'
+                    ? `Esta GPO está em vigor para todos os objetos dentro de ${selectedGpo.linkedTo.length} OUs ou recipientes do AD.` 
+                    : 'Esta política de grupo está desativada ou sem vínculos para ser aplicada no momento.'
                   }
                 </span>
               </div>
@@ -934,9 +685,9 @@ export default function GroupPolicies() {
               <div className="w-12 h-12 bg-slate-100 text-slate-400 rounded-full flex items-center justify-center mb-3">
                 <ShieldCheck className="w-6 h-6" />
               </div>
-              <h3 className="text-sm font-bold text-slate-700">Nenhuma GPO Selecionada</h3>
+              <h3 className="text-sm font-bold text-slate-700">Nenhuma Diretiva Selecionada</h3>
               <p className="text-slate-400 text-xs mt-1 max-w-xs leading-relaxed">
-                Clique em qualquer diretiva da tabela para analisar as propriedades detalhadas, forçar aplicação ou gerenciar vínculos de OUs do Active Directory.
+                Escolha uma política na lista lateral para analisar seus detalhes e os recipientes do Active Directory vinculados a ela.
               </p>
             </div>
           )}
