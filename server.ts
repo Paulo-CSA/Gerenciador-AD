@@ -189,7 +189,9 @@ function getADUsersPromise(cfg: any): Promise<any[]> {
           username: user.sAMAccountName || "",
           department: extractOU(user.dn || user.distinguishedName || "", user.department || "Geral"),
           status: status,
-          lastLogon: safeParseDate(user.lastLogonTimestamp || user.lastLogon, "2026-06-25"),
+          lastLogon: (user.lastLogonTimestamp === "0" || user.lastLogonTimestamp === 0 || user.lastLogon === "0" || user.lastLogon === 0) 
+            ? "Nunca" 
+            : safeParseDate(user.lastLogonTimestamp || user.lastLogon, "Nunca"),
         };
       });
 
@@ -727,7 +729,9 @@ app.get("/api/ad/users", async (req, res) => {
         title: user.title || "Colaborador",
         status: status,
         createdDate: safeParseDate(user.whenCreated, "2025-01-01"),
-        lastLogon: safeParseDate(user.lastLogonTimestamp || user.lastLogon, "2026-06-25"),
+        lastLogon: (user.lastLogonTimestamp === "0" || user.lastLogonTimestamp === 0 || user.lastLogon === "0" || user.lastLogon === 0)
+          ? "Nunca"
+          : safeParseDate(user.lastLogonTimestamp || user.lastLogon, "Nunca"),
         pwdLastSet: user.pwdLastSet ? "2026-05-10" : "2026-05-10",
         pwdExpired: expired,
         accountExpires: user.accountExpires === "9223372036854775807" || !user.accountExpires ? null : "2026-12-31",
