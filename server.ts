@@ -330,7 +330,7 @@ function generateDynamicAuditLogs(realUsers: any[], dbLogs: any[]): any[] {
 }
 
 // Bootstrap initial database for simulation mode
-const initialUsers = [
+const initialUsersRaw = [
   {
     id: "1",
     name: "Ana Silva Santos",
@@ -549,6 +549,12 @@ const initialUsers = [
   }
 ];
 
+const initialUsers = initialUsersRaw.map((u, index) => ({
+  ...u,
+  passwordNeverExpires: (index % 3 === 0),
+  userCannotChangePassword: (index % 4 === 1)
+}));
+
 const initialAuditLogs = [
   {
     id: "l1",
@@ -591,7 +597,32 @@ if (!fs.existsSync(DATABASE_PATH)) {
 function readDatabase() {
   try {
     const data = fs.readFileSync(DATABASE_PATH, "utf8");
-    return JSON.parse(data);
+    const db = JSON.parse(data);
+    let modified = false;
+
+    if (db && Array.isArray(db.users)) {
+      db.users = db.users.map((user: any, index: number) => {
+        let uModified = false;
+        if (user.passwordNeverExpires === undefined) {
+          user.passwordNeverExpires = (index % 3 === 0);
+          uModified = true;
+        }
+        if (user.userCannotChangePassword === undefined) {
+          user.userCannotChangePassword = (index % 4 === 1);
+          uModified = true;
+        }
+        if (uModified) {
+          modified = true;
+        }
+        return user;
+      });
+    }
+
+    if (modified) {
+      fs.writeFileSync(DATABASE_PATH, JSON.stringify(db, null, 2), "utf8");
+    }
+
+    return db;
   } catch (error) {
     console.error("Erro ao ler ad_database.json:", error);
     return { users: initialUsers, logs: initialAuditLogs };
@@ -754,10 +785,10 @@ app.get("/api/ad/users", async (req, res) => {
   
   if (cfg.useDemoMode) {
     const db = readDatabase();
-    const enrichedUsers = db.users.map((user: any, index: number) => ({
+    const enrichedUsers = db.users.map((user: any) => ({
       ...user,
-      passwordNeverExpires: user.passwordNeverExpires !== undefined ? user.passwordNeverExpires : (index % 3 === 0),
-      userCannotChangePassword: user.userCannotChangePassword !== undefined ? user.userCannotChangePassword : (index % 4 === 1)
+      passwordNeverExpires: !!user.passwordNeverExpires,
+      userCannotChangePassword: !!user.userCannotChangePassword
     }));
     return res.json(enrichedUsers);
   }

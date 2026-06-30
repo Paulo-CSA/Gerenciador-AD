@@ -66,6 +66,8 @@ export default function UserManagement({
   const [newUserOU, setNewUserOU] = useState('OU=Tecnologia,OU=Usuarios,DC=empresa,DC=local');
   const [newUserExpires, setNewUserExpires] = useState('');
   const [newUserMustChangePwd, setNewUserMustChangePwd] = useState(true);
+  const [newUserPasswordNeverExpires, setNewUserPasswordNeverExpires] = useState(false);
+  const [newUserUserCannotChangePassword, setNewUserUserCannotChangePassword] = useState(false);
 
   // Quick Action States
   const [resettingPassword, setResettingPassword] = useState(false);
@@ -313,7 +315,9 @@ export default function UserManagement({
       accountExpires: newUserExpires || null,
       memberOf: ['Domain Users'],
       phone: newUserPhone || 'Não informado',
-      mustChangePwd: newUserMustChangePwd
+      mustChangePwd: newUserMustChangePwd,
+      passwordNeverExpires: newUserPasswordNeverExpires,
+      userCannotChangePassword: newUserUserCannotChangePassword
     };
 
     onAddUser(createdUser);
@@ -326,6 +330,8 @@ export default function UserManagement({
     setNewUserTitle('');
     setNewUserPhone('');
     setNewUserExpires('');
+    setNewUserPasswordNeverExpires(false);
+    setNewUserUserCannotChangePassword(false);
 
     onAddAuditLog({
       id: Math.random().toString(),
@@ -748,17 +754,32 @@ export default function UserManagement({
               </div>
 
               <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 text-xs space-y-2">
-                <p className="font-semibold text-slate-400">Políticas Ativas do Usuário (Visualização):</p>
-                <div className="space-y-1.5">
-                  <label className="flex items-center gap-2 text-slate-400 cursor-not-allowed">
+                <p className="font-semibold text-slate-700">Políticas Ativas do Usuário (Clique para Modificar):</p>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 text-slate-700 cursor-pointer">
                     <input 
                       type="checkbox" 
-                      disabled
-                      className="rounded text-slate-400 border-slate-200 focus:ring-0 cursor-not-allowed opacity-55"
-                      checked={selectedUser.mustChangePwd}
-                      readOnly
+                      className="rounded text-blue-600 border-slate-200 focus:ring-blue-500 cursor-pointer"
+                      checked={!!selectedUser.mustChangePwd}
+                      onChange={(e) => {
+                        const updatedUser = {
+                          ...selectedUser,
+                          mustChangePwd: e.target.checked
+                        };
+                        setSelectedUser(updatedUser);
+                        onUpdateUser(updatedUser);
+                        onAddAuditLog({
+                          id: "log_" + Date.now(),
+                          timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+                          operator: 'admin.silva',
+                          action: 'Alteração de Atributo',
+                          targetUser: selectedUser.username,
+                          details: `Atributo 'Usuário deve alterar a senha no próximo logon' alterado para ${e.target.checked ? 'Ativo' : 'Inativo'}.`,
+                          type: 'info'
+                        });
+                      }}
                     />
-                    <span>Usuário deve alterar a senha no próximo logon</span>
+                    <span className="font-medium text-slate-700">Usuário deve alterar a senha no próximo logon</span>
                   </label>
                   <label className="flex items-center gap-2 text-slate-400 cursor-not-allowed">
                     <input 
@@ -770,25 +791,55 @@ export default function UserManagement({
                     />
                     <span>Senha atual expirada (Forçar expiração imediata)</span>
                   </label>
-                  <label className="flex items-center gap-2 text-slate-500 cursor-not-allowed">
+                  <label className="flex items-center gap-2 text-slate-700 cursor-pointer">
                     <input 
                       type="checkbox" 
-                      disabled
-                      className="rounded text-blue-600 border-slate-200 focus:ring-0 cursor-not-allowed opacity-75"
+                      className="rounded text-blue-600 border-slate-200 focus:ring-blue-500 cursor-pointer"
                       checked={!!selectedUser.passwordNeverExpires}
-                      readOnly
+                      onChange={(e) => {
+                        const updatedUser = {
+                          ...selectedUser,
+                          passwordNeverExpires: e.target.checked
+                        };
+                        setSelectedUser(updatedUser);
+                        onUpdateUser(updatedUser);
+                        onAddAuditLog({
+                          id: "log_" + Date.now(),
+                          timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+                          operator: 'admin.silva',
+                          action: 'Alteração de Atributo',
+                          targetUser: selectedUser.username,
+                          details: `Atributo 'Senha nunca expira' alterado para ${e.target.checked ? 'Ativo' : 'Inativo'}.`,
+                          type: 'info'
+                        });
+                      }}
                     />
-                    <span className="font-medium text-slate-600">Senha nunca expira</span>
+                    <span className="font-medium text-slate-700">Senha nunca expira</span>
                   </label>
-                  <label className="flex items-center gap-2 text-slate-500 cursor-not-allowed">
+                  <label className="flex items-center gap-2 text-slate-700 cursor-pointer">
                     <input 
                       type="checkbox" 
-                      disabled
-                      className="rounded text-blue-600 border-slate-200 focus:ring-0 cursor-not-allowed opacity-75"
+                      className="rounded text-blue-600 border-slate-200 focus:ring-blue-500 cursor-pointer"
                       checked={!!selectedUser.userCannotChangePassword}
-                      readOnly
+                      onChange={(e) => {
+                        const updatedUser = {
+                          ...selectedUser,
+                          userCannotChangePassword: e.target.checked
+                        };
+                        setSelectedUser(updatedUser);
+                        onUpdateUser(updatedUser);
+                        onAddAuditLog({
+                          id: "log_" + Date.now(),
+                          timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+                          operator: 'admin.silva',
+                          action: 'Alteração de Atributo',
+                          targetUser: selectedUser.username,
+                          details: `Atributo 'Usuário não pode alterar a senha' alterado para ${e.target.checked ? 'Ativo' : 'Inativo'}.`,
+                          type: 'info'
+                        });
+                      }}
                     />
-                    <span className="font-medium text-slate-600">Usuário não pode alterar a senha</span>
+                    <span className="font-medium text-slate-700">Usuário não pode alterar a senha</span>
                   </label>
                 </div>
               </div>
@@ -999,19 +1050,51 @@ export default function UserManagement({
                     <span className="text-[10px] text-slate-400 block">Deixe em branco para contas por tempo indeterminado.</span>
                   </div>
                   
-                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex flex-col justify-center space-y-2">
-                    <label className="flex items-center gap-2 text-xs text-slate-700 font-medium">
-                      <input 
-                        type="checkbox" 
-                        className="rounded text-blue-600 focus:ring-blue-500"
-                        checked={newUserMustChangePwd}
-                        onChange={(e) => setNewUserMustChangePwd(e.target.checked)}
-                      />
-                      <span>Alterar senha no próximo logon</span>
-                    </label>
-                    <span className="text-[10px] text-slate-400 block leading-tight">
-                      Força o usuário a definir uma senha pessoal segura e confidencial assim que efetuar o primeiro acesso.
-                    </span>
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex flex-col justify-center space-y-3.5">
+                    <div className="space-y-1.5">
+                      <label className="flex items-center gap-2 text-xs text-slate-700 font-medium cursor-pointer">
+                        <input 
+                          type="checkbox" 
+                          className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          checked={newUserMustChangePwd}
+                          onChange={(e) => setNewUserMustChangePwd(e.target.checked)}
+                        />
+                        <span>Alterar senha no próximo logon</span>
+                      </label>
+                      <span className="text-[9px] text-slate-400 block leading-tight">
+                        Força o usuário a definir uma senha pessoal no primeiro acesso.
+                      </span>
+                    </div>
+
+                    <div className="border-t border-slate-200/60 pt-2.5 space-y-1.5">
+                      <label className="flex items-center gap-2 text-xs text-slate-700 font-medium cursor-pointer">
+                        <input 
+                          type="checkbox" 
+                          className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          checked={newUserPasswordNeverExpires}
+                          onChange={(e) => setNewUserPasswordNeverExpires(e.target.checked)}
+                        />
+                        <span>Senha nunca expira</span>
+                      </label>
+                      <span className="text-[9px] text-slate-400 block leading-tight">
+                        A senha da conta ignora a política de expiração periódica do domínio.
+                      </span>
+                    </div>
+
+                    <div className="border-t border-slate-200/60 pt-2.5 space-y-1.5">
+                      <label className="flex items-center gap-2 text-xs text-slate-700 font-medium cursor-pointer">
+                        <input 
+                          type="checkbox" 
+                          className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          checked={newUserUserCannotChangePassword}
+                          onChange={(e) => setNewUserUserCannotChangePassword(e.target.checked)}
+                        />
+                        <span>Usuário não pode alterar a senha</span>
+                      </label>
+                      <span className="text-[9px] text-slate-400 block leading-tight">
+                        Impede o usuário de redefinir sua própria senha de forma autônoma.
+                      </span>
+                    </div>
                   </div>
                 </div>
 
