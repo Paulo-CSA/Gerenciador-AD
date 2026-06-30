@@ -248,14 +248,14 @@ export default function Dashboard({
       {/* KPI Stats Grid & Distribuição Global */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fade-in" id="kpi-and-distribution-row">
         
-        {/* Grid do AD (compacta e densa à esquerda) */}
-        <div className="lg:col-span-5 grid grid-cols-1 sm:grid-cols-2 gap-3" id="kpi-grid">
+        {/* Grid do AD (2 linhas e 3 colunas em telas médias/grandes) */}
+        <div className="lg:col-span-8 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4" id="kpi-grid">
           
           {/* KPI 1: Ativas no Mês */}
           <div 
             id="kpi-active"
             onClick={() => onNavigate('contas', 'AtivasLogonMes')}
-            className="bg-white p-3 rounded-xl border border-slate-100 shadow-xs hover:border-emerald-200 transition-all cursor-pointer flex items-center gap-3 group h-[88px]"
+            className="bg-white p-3.5 rounded-xl border border-slate-100 shadow-xs hover:border-emerald-200 transition-all cursor-pointer flex items-center gap-3 group h-[92px]"
           >
             <div className="bg-emerald-50 text-emerald-600 p-2.5 rounded-lg group-hover:bg-emerald-100 transition-colors shrink-0">
               <UserCheck className="w-5 h-5" />
@@ -274,7 +274,7 @@ export default function Dashboard({
           <div 
             id="kpi-disabled"
             onClick={() => onNavigate('contas', 'DesativadasMes')}
-            className="bg-white p-3 rounded-xl border border-slate-100 shadow-xs hover:border-slate-300 transition-all cursor-pointer flex items-center gap-3 group h-[88px]"
+            className="bg-white p-3.5 rounded-xl border border-slate-100 shadow-xs hover:border-slate-300 transition-all cursor-pointer flex items-center gap-3 group h-[92px]"
           >
             <div className="bg-slate-50 text-slate-500 p-2.5 rounded-lg group-hover:bg-slate-150 transition-colors shrink-0">
               <UserX className="w-5 h-5" />
@@ -293,7 +293,7 @@ export default function Dashboard({
           <div 
             id="kpi-created"
             onClick={() => onNavigate('contas', 'CriadasMes')}
-            className="bg-white p-3 rounded-xl border border-slate-100 shadow-xs hover:border-blue-200 transition-all cursor-pointer flex items-center gap-3 group h-[88px]"
+            className="bg-white p-3.5 rounded-xl border border-slate-100 shadow-xs hover:border-blue-200 transition-all cursor-pointer flex items-center gap-3 group h-[92px]"
           >
             <div className="bg-blue-50 text-blue-600 p-2.5 rounded-lg group-hover:bg-blue-100 transition-colors shrink-0">
               <UserPlus className="w-5 h-5" />
@@ -312,7 +312,7 @@ export default function Dashboard({
           <div 
             id="kpi-inactive"
             onClick={() => onNavigate('alertas')}
-            className="bg-white p-3 rounded-xl border border-slate-100 shadow-xs hover:border-amber-200 transition-all cursor-pointer flex items-center gap-3 group h-[88px]"
+            className="bg-white p-3.5 rounded-xl border border-slate-100 shadow-xs hover:border-amber-200 transition-all cursor-pointer flex items-center gap-3 group h-[92px]"
           >
             <div className="bg-amber-50 text-amber-600 p-2.5 rounded-lg group-hover:bg-amber-100 transition-colors shrink-0">
               <Clock className="w-5 h-5" />
@@ -331,7 +331,7 @@ export default function Dashboard({
           <div 
             id="kpi-never-expires"
             onClick={() => onNavigate('contas', 'NeverExpires')}
-            className="bg-white p-3 rounded-xl border border-slate-100 shadow-xs hover:border-blue-200 transition-all cursor-pointer flex items-center gap-3 group h-[88px]"
+            className="bg-white p-3.5 rounded-xl border border-slate-100 shadow-xs hover:border-blue-200 transition-all cursor-pointer flex items-center gap-3 group h-[92px]"
           >
             <div className="bg-blue-50 text-blue-600 p-2.5 rounded-lg group-hover:bg-blue-100 transition-colors shrink-0">
               <Infinity className="w-5 h-5" />
@@ -350,7 +350,7 @@ export default function Dashboard({
           <div 
             id="kpi-cannot-change"
             onClick={() => onNavigate('contas', 'CannotChangePassword')}
-            className="bg-white p-3 rounded-xl border border-slate-100 shadow-xs hover:border-indigo-200 transition-all cursor-pointer flex items-center gap-3 group h-[88px]"
+            className="bg-white p-3.5 rounded-xl border border-slate-100 shadow-xs hover:border-indigo-200 transition-all cursor-pointer flex items-center gap-3 group h-[92px]"
           >
             <div className="bg-indigo-50 text-indigo-600 p-2.5 rounded-lg group-hover:bg-indigo-100 transition-colors shrink-0">
               <Lock className="w-5 h-5" />
@@ -367,41 +367,26 @@ export default function Dashboard({
 
         </div>
 
-        {/* Status Distribution Pie Chart - Expansão Horizontal com Legenda à Esquerda */}
-        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs lg:col-span-7 flex flex-col justify-between h-[288px]" id="status-pie-card">
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-4 h-full items-center">
-            
-            {/* Coluna Esquerda: Título, Descrição e Legenda */}
-            <div className="md:col-span-7 flex flex-col justify-between h-full py-1">
-              <div>
-                <h3 className="font-display font-bold text-slate-800 text-sm">Distribuição Global de Contas</h3>
-                <p className="text-slate-400 text-[11px] mt-0.5">Visão consolidada da integridade do Active Directory</p>
-              </div>
-              <div className="grid grid-cols-2 gap-2 mt-2">
-                {statusData.map((entry, index) => (
-                  <div key={entry.name} className="flex items-center gap-2 p-1.5 rounded-lg bg-slate-50 border border-slate-100/40">
-                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }}></span>
-                    <div className="truncate min-w-0">
-                      <span className="text-slate-500 block text-[9px] font-semibold uppercase tracking-wider truncate leading-none">{entry.name}</span>
-                      <span className="font-bold text-slate-800 text-xs mt-0.5 block leading-none">{entry.value}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+        {/* Status Distribution Pie Chart - No mesmo grid das contas */}
+        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs lg:col-span-4 flex flex-col justify-between h-[200px]" id="status-pie-card">
+          <div>
+            <h3 className="font-display font-bold text-slate-800 text-xs">Distribuição de Contas</h3>
+            <p className="text-slate-400 text-[10px] mt-0.5 truncate">Integridade geral de contas no Active Directory</p>
+          </div>
 
-            {/* Coluna Direita: Pie Chart com Valor Central */}
-            <div className="md:col-span-5 h-full relative flex items-center justify-center min-h-[160px]">
-              <div className="h-44 w-44 relative flex items-center justify-center">
+          <div className="grid grid-cols-12 gap-2 items-center flex-1 min-h-0 mt-1">
+            {/* Coluna do Gráfico */}
+            <div className="col-span-5 relative flex items-center justify-center h-full">
+              <div className="h-24 w-24 relative flex items-center justify-center">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
                       data={statusData}
                       cx="50%"
                       cy="50%"
-                      innerRadius={42}
-                      outerRadius={65}
-                      paddingAngle={3}
+                      innerRadius={24}
+                      outerRadius={36}
+                      paddingAngle={2}
                       dataKey="value"
                     >
                       {statusData.map((entry, index) => (
@@ -409,17 +394,29 @@ export default function Dashboard({
                       ))}
                     </Pie>
                     <Tooltip 
-                      contentStyle={{ backgroundColor: '#ffffff', borderRadius: '8px', border: '1px solid #f1f5f9', fontSize: '10px' }}
+                      contentStyle={{ backgroundColor: '#ffffff', borderRadius: '6px', border: '1px solid #f1f5f9', fontSize: '9px', padding: '4px 8px' }}
                     />
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="absolute text-center pointer-events-none">
-                  <span className="text-xl font-bold font-display text-slate-700 leading-none">{users.length}</span>
-                  <p className="text-[8px] text-slate-400 font-bold tracking-wider uppercase mt-1">Total</p>
+                  <span className="text-sm font-bold font-display text-slate-700 leading-none">{users.length}</span>
+                  <p className="text-[6px] text-slate-400 font-bold tracking-wider uppercase leading-none mt-0.5">Total</p>
                 </div>
               </div>
             </div>
 
+            {/* Coluna de Legenda */}
+            <div className="col-span-7 grid grid-cols-1 gap-1.5 max-h-[120px] overflow-y-auto pr-1">
+              {statusData.map((entry, index) => (
+                <div key={entry.name} className="flex items-center justify-between gap-1.5 p-1 px-1.5 rounded-lg bg-slate-50 border border-slate-100/40 text-left min-w-0">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }}></span>
+                    <span className="text-slate-500 text-[9px] font-bold uppercase tracking-wider truncate leading-none">{entry.name}</span>
+                  </div>
+                  <span className="font-mono font-bold text-slate-800 text-xs shrink-0 leading-none">{entry.value}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
