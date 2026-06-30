@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Users, 
   UserX, 
@@ -15,7 +15,13 @@ import {
   Activity, 
   Building2, 
   KeyRound,
-  FileSpreadsheet
+  FileSpreadsheet,
+  ShieldCheck,
+  Link2,
+  Link2Off,
+  Loader2,
+  FileText,
+  LayoutGrid
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -32,7 +38,7 @@ import {
   AreaChart,
   Area
 } from 'recharts';
-import { ADUser, AuditLog } from '../types';
+import { ADUser, AuditLog, GPO } from '../types';
 
 interface DashboardProps {
   users: ADUser[];
@@ -50,6 +56,70 @@ export default function Dashboard({
   adStatus
 }: DashboardProps) {
   
+  // GPO state for dashboard GPO cards
+  const [gpos, setGpos] = useState<GPO[]>([]);
+  const [loadingGpos, setLoadingGpos] = useState<boolean>(true);
+
+  useEffect(() => {
+    let active = true;
+    const fetchGpos = async () => {
+      try {
+        const response = await fetch('/api/ad/gpos');
+        if (response.ok && active) {
+          const data = await response.json();
+          setGpos(data);
+        }
+      } catch (err) {
+        console.error("Erro ao buscar GPOs para o dashboard:", err);
+      } finally {
+        if (active) setLoadingGpos(false);
+      }
+    };
+    fetchGpos();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // GPO metrics calculations
+  const totalGpos = gpos.length;
+  const inUseGpos = gpos.filter(g => g.linkedTo.length > 0).length;
+  const notInUseGpos = totalGpos - inUseGpos;
+
+  // Chart 1: Usage Distribution
+  const usageChartData = useMemo(() => {
+    return [
+      { name: 'Em Uso (Vinculadas)', value: inUseGpos, color: '#3b82f6' },
+      { name: 'Não Utilizadas', value: notInUseGpos, color: '#94a3b8' }
+    ];
+  }, [inUseGpos, notInUseGpos]);
+
+  // Chart 2: Type Distribution
+  const typeChartData = useMemo(() => {
+    const counts: Record<string, number> = {
+      'Segurança': 0,
+      'Preferências': 0,
+      'Modelos Administrativos': 0,
+      'Software': 0,
+      'Scripts': 0
+    };
+    
+    gpos.forEach(g => {
+      if (counts[g.gpoType] !== undefined) {
+        counts[g.gpoType] += 1;
+      }
+    });
+
+    return Object.keys(counts).map(key => ({
+      name: key,
+      value: counts[key],
+      color: key === 'Segurança' ? '#e11d48' :
+             key === 'Preferências' ? '#10b981' :
+             key === 'Modelos Administrativos' ? '#8b5cf6' :
+             key === 'Software' ? '#f59e0b' : '#06b6d4'
+    })).filter(item => item.value > 0);
+  }, [gpos]);
+
   // Date calculations (Current dynamic date)
   const CURRENT_YEAR_MONTH = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; })();
 
@@ -166,240 +236,401 @@ export default function Dashboard({
         </div>
       </div>
 
-      {/* KPI Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" id="kpi-grid">
+      {/* KPI Stats Grid & Distribuição Global */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fade-in" id="kpi-and-distribution-row">
         
-        {/* KPI 1: Ativas no Mês */}
-        <div 
-          id="kpi-active"
-          onClick={() => onNavigate('contas', 'AtivasLogonMes')}
-          className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs hover:border-emerald-200 transition-all cursor-pointer group"
-        >
-          <div className="flex justify-between items-start">
-            <div className="bg-emerald-50 text-emerald-600 p-3 rounded-xl group-hover:bg-emerald-100 transition-colors">
-              <UserCheck className="w-6 h-6" />
+        {/* Grid do AD (compacta e densa à esquerda) */}
+        <div className="lg:col-span-5 grid grid-cols-1 sm:grid-cols-2 gap-3" id="kpi-grid">
+          
+          {/* KPI 1: Ativas no Mês */}
+          <div 
+            id="kpi-active"
+            onClick={() => onNavigate('contas', 'AtivasLogonMes')}
+            className="bg-white p-3 rounded-xl border border-slate-100 shadow-xs hover:border-emerald-200 transition-all cursor-pointer flex items-center gap-3 group h-[88px]"
+          >
+            <div className="bg-emerald-50 text-emerald-600 p-2.5 rounded-lg group-hover:bg-emerald-100 transition-colors shrink-0">
+              <UserCheck className="w-5 h-5" />
             </div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-              Contas
-            </span>
-          </div>
-          <div className="mt-4">
-            <h3 className="text-sm font-medium text-slate-500">Contas Ativas</h3>
-            <div className="flex items-baseline gap-2 mt-1">
-              <span className="text-3xl font-display font-bold text-slate-800">{activeInCurrentMonth.length}</span>
-              <span className="text-xs font-semibold text-emerald-600 flex items-center">
-                Ativas no diretório
-              </span>
+            <div className="min-w-0 flex-1">
+              <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-600 block">Contas</span>
+              <h3 className="text-xs font-semibold text-slate-500 mt-0.5 truncate">Ativas no Mês</h3>
+              <div className="flex items-baseline gap-1 mt-0.5 leading-none">
+                <span className="text-xl font-display font-bold text-slate-800">{activeInCurrentMonth.length}</span>
+                <span className="text-[9px] text-emerald-600 font-semibold truncate">Habilitadas</span>
+              </div>
             </div>
-            <p className="text-xs text-slate-400 mt-2">Acesso autorizado no domínio</p>
           </div>
+
+          {/* KPI 2: Desativadas no Mês */}
+          <div 
+            id="kpi-disabled"
+            onClick={() => onNavigate('contas', 'DesativadasMes')}
+            className="bg-white p-3 rounded-xl border border-slate-100 shadow-xs hover:border-slate-300 transition-all cursor-pointer flex items-center gap-3 group h-[88px]"
+          >
+            <div className="bg-slate-50 text-slate-500 p-2.5 rounded-lg group-hover:bg-slate-150 transition-colors shrink-0">
+              <UserX className="w-5 h-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block">Suspensas</span>
+              <h3 className="text-xs font-semibold text-slate-500 mt-0.5 truncate">Desativadas</h3>
+              <div className="flex items-baseline gap-1 mt-0.5 leading-none">
+                <span className="text-xl font-display font-bold text-slate-800">{disabledInCurrentMonth.length}</span>
+                <span className="text-[9px] text-slate-500 font-medium truncate">Bloqueadas</span>
+              </div>
+            </div>
+          </div>
+
+          {/* KPI 3: Criadas no Mês */}
+          <div 
+            id="kpi-created"
+            onClick={() => onNavigate('contas', 'CriadasMes')}
+            className="bg-white p-3 rounded-xl border border-slate-100 shadow-xs hover:border-blue-200 transition-all cursor-pointer flex items-center gap-3 group h-[88px]"
+          >
+            <div className="bg-blue-50 text-blue-600 p-2.5 rounded-lg group-hover:bg-blue-100 transition-colors shrink-0">
+              <UserPlus className="w-5 h-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <span className="text-[9px] font-bold uppercase tracking-wider text-blue-600 block">Provisões</span>
+              <h3 className="text-xs font-semibold text-slate-500 mt-0.5 truncate">Criadas no Mês</h3>
+              <div className="flex items-baseline gap-1 mt-0.5 leading-none">
+                <span className="text-xl font-display font-bold text-slate-800">{createdInCurrentMonth.length}</span>
+                <span className="text-[9px] text-blue-600 font-semibold truncate">Este mês</span>
+              </div>
+            </div>
+          </div>
+
+          {/* KPI 4: Inatividade Prolongada */}
+          <div 
+            id="kpi-inactive"
+            onClick={() => onNavigate('alertas')}
+            className="bg-white p-3 rounded-xl border border-slate-100 shadow-xs hover:border-amber-200 transition-all cursor-pointer flex items-center gap-3 group h-[88px]"
+          >
+            <div className="bg-amber-50 text-amber-600 p-2.5 rounded-lg group-hover:bg-amber-100 transition-colors shrink-0">
+              <Clock className="w-5 h-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <span className="text-[9px] font-bold uppercase tracking-wider text-amber-600 block">Segurança</span>
+              <h3 className="text-xs font-semibold text-slate-500 mt-0.5 truncate">Inativas (+{inactivityDays}d)</h3>
+              <div className="flex items-baseline gap-1 mt-0.5 leading-none">
+                <span className="text-xl font-display font-bold text-slate-800">{inactiveUsers.length}</span>
+                <span className="text-[9px] text-amber-600 font-semibold truncate">Inativas</span>
+              </div>
+            </div>
+          </div>
+
         </div>
 
-        {/* KPI 2: Desativadas no Mês */}
-        <div 
-          id="kpi-disabled"
-          onClick={() => onNavigate('contas', 'DesativadasMes')}
-          className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs hover:border-slate-300 transition-all cursor-pointer group"
-        >
-          <div className="flex justify-between items-start">
-            <div className="bg-slate-100 text-slate-600 p-3 rounded-xl group-hover:bg-slate-200 transition-colors">
-              <UserX className="w-6 h-6" />
+        {/* Status Distribution Pie Chart - Expansão Horizontal com Legenda à Esquerda */}
+        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs lg:col-span-7 flex flex-col justify-between h-[188px]" id="status-pie-card">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-4 h-full items-center">
+            
+            {/* Coluna Esquerda: Título, Descrição e Legenda */}
+            <div className="md:col-span-7 flex flex-col justify-between h-full py-0.5">
+              <div>
+                <h3 className="font-display font-bold text-slate-800 text-sm">Distribuição Global de Contas</h3>
+                <p className="text-slate-400 text-[11px] mt-0.5">Visão consolidada da integridade do Active Directory</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                {statusData.map((entry, index) => (
+                  <div key={entry.name} className="flex items-center gap-2 p-1.5 rounded-lg bg-slate-50 border border-slate-100/40">
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }}></span>
+                    <div className="truncate min-w-0">
+                      <span className="text-slate-500 block text-[9px] font-semibold uppercase tracking-wider truncate leading-none">{entry.name}</span>
+                      <span className="font-bold text-slate-800 text-xs mt-0.5 block leading-none">{entry.value}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-            {disabledInCurrentMonth.length > 0 && (
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-700 bg-slate-200 px-2 py-0.5 rounded-full">
-                Suspenso
-              </span>
-            )}
-          </div>
-          <div className="mt-4">
-            <h3 className="text-sm font-medium text-slate-500">Contas Desativadas</h3>
-            <div className="flex items-baseline gap-2 mt-1">
-              <span className="text-3xl font-display font-bold text-slate-800">{disabledInCurrentMonth.length}</span>
-              <span className="text-xs font-semibold text-slate-500">
-                Acesso suspenso
-              </span>
-            </div>
-            <p className="text-xs text-slate-400 mt-2">Desativadas administrativamente</p>
-          </div>
-        </div>
 
-        {/* KPI 3: Criadas no Mês */}
-        <div 
-          id="kpi-created"
-          onClick={() => onNavigate('contas', 'CriadasMes')}
-          className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs hover:border-blue-200 transition-all cursor-pointer group"
-        >
-          <div className="flex justify-between items-start">
-            <div className="bg-blue-50 text-blue-600 p-3 rounded-xl group-hover:bg-blue-100 transition-colors">
-              <UserPlus className="w-6 h-6" />
-            </div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
-              Novos Usuários
-            </span>
-          </div>
-          <div className="mt-4">
-            <h3 className="text-sm font-medium text-slate-500">Criadas no Mês</h3>
-            <div className="flex items-baseline gap-2 mt-1">
-              <span className="text-3xl font-display font-bold text-slate-800">{createdInCurrentMonth.length}</span>
-              <span className="text-xs font-semibold text-blue-600">
-                Provisões de {(() => {
-                  const d = new Date();
-                  const m = d.toLocaleDateString('pt-BR', { month: 'long' });
-                  return m.charAt(0).toUpperCase() + m.slice(1);
-                })()}
-              </span>
-            </div>
-            <p className="text-xs text-slate-400 mt-2">
-              De 01/{String(new Date().getMonth() + 1).padStart(2, '0')} até hoje ({String(new Date().getDate()).padStart(2, '0')}/{String(new Date().getMonth() + 1).padStart(2, '0')})
-            </p>
-          </div>
-        </div>
-
-        {/* KPI 4: Inatividade Prolongada */}
-        <div 
-          id="kpi-inactive"
-          onClick={() => onNavigate('alertas')}
-          className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs hover:border-amber-200 transition-all cursor-pointer group"
-        >
-          <div className="flex justify-between items-start">
-            <div className="bg-amber-50 text-amber-600 p-3 rounded-xl group-hover:bg-amber-100 transition-colors">
-              <Clock className="w-6 h-6" />
-            </div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
-              &gt; {inactivityDays} dias
-            </span>
-          </div>
-          <div className="mt-4">
-            <h3 className="text-sm font-medium text-slate-500">Inativas (+{inactivityDays}d)</h3>
-            <div className="flex items-baseline gap-2 mt-1">
-              <span className="text-3xl font-display font-bold text-slate-800">{inactiveUsers.length}</span>
-              <span className="text-xs font-semibold text-amber-600">Risco de segurança</span>
-            </div>
-            <p className="text-xs text-slate-400 mt-2">Recomendado suspender acesso</p>
-          </div>
-        </div>
-
-      </div>
-
-      {/* Main Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" id="dashboard-charts">
-        
-        {/* Trend Area Chart */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs lg:col-span-2" id="trend-chart-card">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="font-display font-bold text-slate-800">Histórico de Eventos de Contas</h3>
-              <p className="text-slate-400 text-xs">Métricas consolidadas do último semestre</p>
-            </div>
-            <div className="flex gap-4 text-xs font-medium">
-              <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-blue-500 rounded-sm"></span>Logon Ativo</span>
-              <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-emerald-500 rounded-sm"></span>Criadas</span>
-              <span className="flex items-center gap-1.5"><span className="w-3 h-3 bg-rose-500 rounded-sm"></span>Bloqueadas</span>
-            </div>
-          </div>
-          <div className="h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={monthlyTrendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorAtivas" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2}/>
-                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                  </linearGradient>
-                  <linearGradient id="colorCriadas" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} />
-                <YAxis tickLine={false} axisLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} />
-                <Tooltip 
-                  contentStyle={{ backgroundColor: '#ffffff', borderRadius: '12px', border: '1px solid #f1f5f9', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }} 
-                  labelClassName="font-bold text-slate-700"
-                />
-                <Area type="monotone" name="Ativas no Mês" dataKey="AtivasLogon" stroke="#3b82f6" strokeWidth={2.5} fillOpacity={1} fill="url(#colorAtivas)" />
-                <Area type="monotone" name="Criadas" dataKey="Criadas" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorCriadas)" />
-                <Area type="monotone" name="Bloqueadas" dataKey="Bloqueadas" stroke="#ef4444" strokeWidth={1.5} strokeDasharray="4 4" fill="none" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Status Distribution Pie Chart */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs" id="status-pie-card">
-          <div className="mb-4">
-            <h3 className="font-display font-bold text-slate-800">Distribuição Global</h3>
-            <p className="text-slate-400 text-xs">Divisão de todos os registros carregados no AD</p>
-          </div>
-          <div className="h-56 relative flex items-center justify-center">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={statusData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={75}
-                  paddingAngle={4}
-                  dataKey="value"
-                >
-                  {statusData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip 
-                  contentStyle={{ backgroundColor: '#ffffff', borderRadius: '8px', border: '1px solid #f1f5f9' }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="absolute text-center">
-              <span className="text-2xl font-bold font-display text-slate-700">{users.length}</span>
-              <p className="text-[10px] text-slate-400 font-semibold tracking-wider uppercase">Contas</p>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
-            {statusData.map((entry, index) => (
-              <div key={entry.name} className="flex items-center gap-2 p-1.5 rounded-lg bg-slate-50 border border-slate-100">
-                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: PIE_COLORS[index] }}></span>
-                <div className="truncate">
-                  <span className="text-slate-500 block text-[10px]">{entry.name}</span>
-                  <span className="font-bold text-slate-800">{entry.value}</span>
+            {/* Coluna Direita: Pie Chart com Valor Central */}
+            <div className="md:col-span-5 h-full relative flex items-center justify-center min-h-[130px]">
+              <div className="h-32 w-32 relative flex items-center justify-center">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={statusData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={30}
+                      outerRadius={48}
+                      paddingAngle={3}
+                      dataKey="value"
+                    >
+                      {statusData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: '#ffffff', borderRadius: '8px', border: '1px solid #f1f5f9', fontSize: '10px' }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="absolute text-center pointer-events-none">
+                  <span className="text-lg font-bold font-display text-slate-700 leading-none">{users.length}</span>
+                  <p className="text-[7px] text-slate-400 font-bold tracking-wider uppercase mt-0.5">Total</p>
                 </div>
               </div>
-            ))}
+            </div>
+
           </div>
         </div>
 
       </div>
 
-      {/* Department Distribution & Domain Info */}
+      {/* GPO Performance and Analytics Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6" id="dashboard-charts">
+        
+        {/* GPO Charts - Taxa de Vínculo e Classificação por Categorias (Expansão Horizontal lg:col-span-7) */}
+        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs lg:col-span-7 flex flex-col justify-between h-[235px]" id="gpo-charts-card">
+          <div className="flex items-center justify-between mb-2 shrink-0">
+            <div>
+              <h3 className="font-display font-bold text-slate-800 text-sm">Distribuição e Uso de GPOs</h3>
+              <p className="text-slate-400 text-[11px]">Métricas de vinculação e categorização das políticas do domínio</p>
+            </div>
+          </div>
+          
+          {loadingGpos ? (
+            <div className="flex-1 flex flex-col items-center justify-center">
+              <Loader2 className="w-7 h-7 text-blue-600 animate-spin mb-1" />
+              <span className="text-[10px] text-slate-400">Carregando visualizações...</span>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1 min-h-0">
+              
+              {/* Gráfico 1: Taxa de Vínculo */}
+              <div className="flex border-r border-slate-100/80 pr-2 h-full items-center min-w-0">
+                <div className="flex-1 flex flex-col justify-between h-full py-1 min-w-0">
+                  <div>
+                    <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                      <Activity className="w-3.5 h-3.5 text-blue-500" />
+                      Taxa de Vínculo
+                    </h4>
+                    <p className="text-[9px] text-slate-400">Status de governança</p>
+                  </div>
+                  <div className="space-y-1 mt-2">
+                    {usageChartData.map((item, idx) => (
+                      <div key={idx} className="flex items-center gap-1.5 p-1 rounded bg-slate-50 border border-slate-100/50 min-w-0">
+                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
+                        <span className="text-slate-500 font-semibold text-[9px] truncate">{item.name}: <strong className="text-slate-800 font-bold">{item.value}</strong></span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="w-24 h-24 relative flex items-center justify-center shrink-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={usageChartData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={20}
+                        outerRadius={32}
+                        paddingAngle={3}
+                        dataKey="value"
+                      >
+                        {usageChartData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={{ fontSize: '9px', borderRadius: '6px' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="absolute text-center pointer-events-none">
+                    <span className="text-xs font-bold text-slate-700 leading-none">{inUseGpos}</span>
+                    <p className="text-[6px] text-slate-400 font-semibold uppercase leading-none mt-0.5">Em Uso</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Gráfico 2: Classificação por Categorias */}
+              <div className="flex h-full items-center pl-2 min-w-0">
+                <div className="flex-1 flex flex-col justify-between h-full py-1 min-w-0">
+                  <div>
+                    <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                      <LayoutGrid className="w-3.5 h-3.5 text-emerald-500" />
+                      Categorias GPO
+                    </h4>
+                    <p className="text-[9px] text-slate-400">Divisão de políticas</p>
+                  </div>
+                  <div className="space-y-1 mt-1.5 max-h-[100px] overflow-y-auto pr-1">
+                    {typeChartData.map((item, idx) => (
+                      <div key={idx} className="flex items-center justify-between gap-1 p-0.5 px-1 rounded bg-slate-50 border border-slate-100/30">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="w-1 h-1 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
+                          <span className="text-slate-500 font-semibold text-[9px] truncate">{item.name}</span>
+                        </div>
+                        <span className="text-slate-800 font-bold text-[9px] px-1 bg-slate-200/50 rounded shrink-0">{item.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="w-24 h-24 relative flex items-center justify-center shrink-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={typeChartData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={20}
+                        outerRadius={32}
+                        paddingAngle={2}
+                        dataKey="value"
+                      >
+                        {typeChartData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={{ fontSize: '9px', borderRadius: '6px' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+            </div>
+          )}
+        </div>
+
+        {/* GPO Indicators Card (Compacto à esquerda / lg:col-span-5) */}
+        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs lg:col-span-5 flex flex-col justify-between h-[235px]" id="gpo-indicators-card">
+          <div>
+            <h3 className="font-display font-bold text-slate-800 text-xs flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4 text-blue-600" />
+              Métricas de Diretivas (GPOs)
+            </h3>
+            <p className="text-slate-400 text-[10px]">Políticas ativas e estruturadas no Active Directory</p>
+          </div>
+          
+          {loadingGpos ? (
+            <div className="flex-1 flex flex-col items-center justify-center py-4">
+              <Loader2 className="w-6 h-6 text-blue-600 animate-spin mb-1" />
+              <span className="text-xs text-slate-400">Carregando indicadores...</span>
+            </div>
+          ) : (
+            <div className="space-y-1.5 my-auto py-1">
+              {/* Total GPOs Card */}
+              <div 
+                onClick={() => onNavigate('gpos')}
+                className="bg-blue-50/40 hover:bg-blue-50/70 p-2 rounded-lg border border-blue-100/30 transition-all cursor-pointer flex items-center justify-between group"
+              >
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 bg-blue-100 text-blue-600 rounded-md flex items-center justify-center shrink-0">
+                    <FileText className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-700">Total de GPOs</span>
+                    <span className="text-[9px] text-slate-400 block -mt-0.5">Criadas no AD</span>
+                  </div>
+                </div>
+                <span className="text-lg font-bold font-display text-slate-800 pr-1">{totalGpos}</span>
+              </div>
+
+              {/* GPOs em Uso Card */}
+              <div 
+                onClick={() => onNavigate('gpos')}
+                className="bg-emerald-50/40 hover:bg-emerald-50/70 p-2 rounded-lg border border-emerald-100/30 transition-all cursor-pointer flex items-center justify-between group"
+              >
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 bg-emerald-100 text-emerald-600 rounded-md flex items-center justify-center shrink-0">
+                    <Link2 className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-700 font-semibold">GPOs em Uso</span>
+                    <span className="text-[9px] text-emerald-600 font-semibold block -mt-0.5">
+                      {totalGpos > 0 ? ((inUseGpos / totalGpos) * 100).toFixed(0) : 0}% Vinculadas
+                    </span>
+                  </div>
+                </div>
+                <span className="text-lg font-bold font-display text-slate-800 pr-1">{inUseGpos}</span>
+              </div>
+
+              {/* Não Utilizadas Card */}
+              <div 
+                onClick={() => onNavigate('gpos')}
+                className="bg-slate-50 hover:bg-slate-100 p-2 rounded-lg border border-slate-200/50 transition-all cursor-pointer flex items-center justify-between group"
+              >
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 bg-slate-200 text-slate-500 rounded-md flex items-center justify-center shrink-0">
+                    <Link2Off className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-700">Não Utilizadas</span>
+                    <span className="text-[9px] text-slate-500 block -mt-0.5">Sem vínculo ativo</span>
+                  </div>
+                </div>
+                <span className="text-lg font-bold font-display text-slate-800 pr-1">{notInUseGpos}</span>
+              </div>
+            </div>
+          )}
+
+          <div className="mt-1 pt-1.5 border-t border-slate-50 text-[10px] text-slate-500 flex items-center justify-between">
+            <span>Acesse a aba GPOs para auditoria.</span>
+            <button 
+              onClick={() => onNavigate('gpos')} 
+              className="text-blue-600 hover:text-blue-800 font-bold"
+            >
+              Ver Detalhes &rarr;
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      {/* Audit Logs & System Status Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" id="dashboard-details-row">
         
-        {/* Department chart (2 cols) */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs lg:col-span-2" id="department-bar-card">
-          <div className="mb-4">
-            <h3 className="font-display font-bold text-slate-800">Volume por Departamento</h3>
-            <p className="text-slate-400 text-xs">Representação de contas por área de negócio</p>
+        {/* Bottom Audits Preview - Now taking lg:col-span-2 for beautiful horizontal spacing */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs lg:col-span-2" id="audit-preview-card">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="font-display font-bold text-slate-800">Logs de Auditoria Recentes</h3>
+              <p className="text-slate-400 text-xs">Últimas ações administrativas efetuadas no diretório</p>
+            </div>
+            <button 
+              onClick={() => onNavigate('logs')}
+              className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
+            >
+              Ver todos os logs &rarr;
+            </button>
           </div>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={departmentData} layout="vertical" margin={{ top: 5, right: 10, left: 30, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                <XAxis type="number" tickLine={false} axisLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} />
-                <YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tick={{ fill: '#475569', fontSize: 11 }} width={120} />
-                <Tooltip contentStyle={{ backgroundColor: '#ffffff', borderRadius: '12px' }} />
-                <Bar dataKey="value" name="Quantidade" radius={[0, 4, 4, 0]} barSize={16}>
-                  {departmentData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={DEPT_COLORS[index % DEPT_COLORS.length]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider">
+                  <th className="py-2 px-3">Data/Hora</th>
+                  <th className="py-2 px-3">Operador</th>
+                  <th className="py-2 px-3">Ação</th>
+                  <th className="py-2 px-3">Alvo</th>
+                  <th className="py-2 px-3">Detalhes</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50 text-slate-600">
+                {auditLogs.slice(0, 4).map((log) => (
+                  <tr key={log.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="py-2.5 px-3 font-mono text-slate-500">{log.timestamp}</td>
+                    <td className="py-2.5 px-3">
+                      <span className="font-medium text-slate-700">{log.operator}</span>
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <span className={`inline-flex items-center gap-1 font-semibold rounded-full px-2 py-0.5 text-[10px] ${
+                        log.type === 'success' ? 'bg-emerald-50 text-emerald-700' :
+                        log.type === 'warning' ? 'bg-amber-50 text-amber-700' :
+                        log.type === 'danger' ? 'bg-rose-50 text-rose-700' : 'bg-blue-50 text-blue-700'
+                      }`}>
+                        {log.action}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 font-mono text-slate-800 font-semibold">{log.targetUser}</td>
+                    <td className="py-2.5 px-3 text-slate-500 truncate max-w-xs">{log.details}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
 
         {/* System Health / Directory Status */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs" id="directory-status-card">
+        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs lg:col-span-1" id="directory-status-card">
           <h3 className="font-display font-bold text-slate-800 mb-4 flex items-center gap-2">
             <Building2 className="w-5 h-5 text-blue-500" />
             Infraestrutura do Domínio
@@ -444,56 +675,6 @@ export default function Dashboard({
           </div>
         </div>
 
-      </div>
-
-      {/* Bottom Audits Preview */}
-      <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-xs" id="audit-preview-card">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="font-display font-bold text-slate-800">Logs de Auditoria Recentes</h3>
-            <p className="text-slate-400 text-xs">Últimas ações administrativas efetuadas no diretório</p>
-          </div>
-          <button 
-            onClick={() => onNavigate('logs')}
-            className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
-          >
-            Ver todos os logs &rarr;
-          </button>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider">
-                <th className="py-2 px-3">Data/Hora</th>
-                <th className="py-2 px-3">Operador</th>
-                <th className="py-2 px-3">Ação</th>
-                <th className="py-2 px-3">Alvo</th>
-                <th className="py-2 px-3">Detalhes</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50 text-slate-600">
-              {auditLogs.slice(0, 4).map((log) => (
-                <tr key={log.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="py-2.5 px-3 font-mono text-slate-500">{log.timestamp}</td>
-                  <td className="py-2.5 px-3">
-                    <span className="font-medium text-slate-700">{log.operator}</span>
-                  </td>
-                  <td className="py-2.5 px-3">
-                    <span className={`inline-flex items-center gap-1 font-semibold rounded-full px-2 py-0.5 text-[10px] ${
-                      log.type === 'success' ? 'bg-emerald-50 text-emerald-700' :
-                      log.type === 'warning' ? 'bg-amber-50 text-amber-700' :
-                      log.type === 'danger' ? 'bg-rose-50 text-rose-700' : 'bg-blue-50 text-blue-700'
-                    }`}>
-                      {log.action}
-                    </span>
-                  </td>
-                  <td className="py-2.5 px-3 font-mono text-slate-800 font-semibold">{log.targetUser}</td>
-                  <td className="py-2.5 px-3 text-slate-500 truncate max-w-xs">{log.details}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
       </div>
     </div>
   );
