@@ -154,6 +154,10 @@ export default function UserManagement({
         matchesDashboard = user.status === 'Bloqueada';
       } else if (dashboardFilter === 'DesativadasMes') {
         matchesDashboard = user.status === 'Desativada';
+      } else if (dashboardFilter === 'NeverExpires') {
+        matchesDashboard = !!user.passwordNeverExpires;
+      } else if (dashboardFilter === 'CannotChangePassword') {
+        matchesDashboard = !!user.userCannotChangePassword;
       }
     }
 
@@ -463,6 +467,8 @@ export default function UserManagement({
               })()}/${new Date().getFullYear()}`}
               {dashboardFilter === 'Bloqueada' && 'Apenas Bloqueadas'}
               {dashboardFilter === 'DesativadasMes' && 'Desativadas no Mês'}
+              {dashboardFilter === 'NeverExpires' && 'Senha Nunca Expira'}
+              {dashboardFilter === 'CannotChangePassword' && 'Não Altera Senha'}
             </p>
           </div>
         )}

@@ -22,7 +22,9 @@ import {
   Loader2,
   FileText,
   LayoutGrid,
-  CheckCircle2
+  CheckCircle2,
+  Infinity,
+  Lock
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -186,6 +188,12 @@ export default function Dashboard({
     return days >= inactivityDays;
   });
 
+  // 6. Contas com Senha Nunca Expira
+  const neverExpiresUsers = users.filter(u => !!u.passwordNeverExpires);
+
+  // 7. Contas que o usuário não pode alterar a senha
+  const cannotChangePasswordUsers = users.filter(u => !!u.userCannotChangePassword);
+
   // Department Distribution data
   const departmentCounts: { [key: string]: number } = {};
   users.forEach(u => {
@@ -319,14 +327,52 @@ export default function Dashboard({
             </div>
           </div>
 
+          {/* KPI 5: Senha Nunca Expira */}
+          <div 
+            id="kpi-never-expires"
+            onClick={() => onNavigate('contas', 'NeverExpires')}
+            className="bg-white p-3 rounded-xl border border-slate-100 shadow-xs hover:border-blue-200 transition-all cursor-pointer flex items-center gap-3 group h-[88px]"
+          >
+            <div className="bg-blue-50 text-blue-600 p-2.5 rounded-lg group-hover:bg-blue-100 transition-colors shrink-0">
+              <Infinity className="w-5 h-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <span className="text-[9px] font-bold uppercase tracking-wider text-blue-600 block">Atributo AD</span>
+              <h3 className="text-xs font-semibold text-slate-500 mt-0.5 truncate">Senha Sem Expiração</h3>
+              <div className="flex items-baseline gap-1 mt-0.5 leading-none">
+                <span className="text-xl font-display font-bold text-slate-800">{neverExpiresUsers.length}</span>
+                <span className="text-[9px] text-blue-600 font-semibold truncate">Vitalícias</span>
+              </div>
+            </div>
+          </div>
+
+          {/* KPI 6: Não Altera Senha */}
+          <div 
+            id="kpi-cannot-change"
+            onClick={() => onNavigate('contas', 'CannotChangePassword')}
+            className="bg-white p-3 rounded-xl border border-slate-100 shadow-xs hover:border-indigo-200 transition-all cursor-pointer flex items-center gap-3 group h-[88px]"
+          >
+            <div className="bg-indigo-50 text-indigo-600 p-2.5 rounded-lg group-hover:bg-indigo-100 transition-colors shrink-0">
+              <Lock className="w-5 h-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <span className="text-[9px] font-bold uppercase tracking-wider text-indigo-600 block">Atributo AD</span>
+              <h3 className="text-xs font-semibold text-slate-500 mt-0.5 truncate">Não Altera Senha</h3>
+              <div className="flex items-baseline gap-1 mt-0.5 leading-none">
+                <span className="text-xl font-display font-bold text-slate-800">{cannotChangePasswordUsers.length}</span>
+                <span className="text-[9px] text-indigo-600 font-semibold truncate">Restritos</span>
+              </div>
+            </div>
+          </div>
+
         </div>
 
         {/* Status Distribution Pie Chart - Expansão Horizontal com Legenda à Esquerda */}
-        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs lg:col-span-7 flex flex-col justify-between h-[188px]" id="status-pie-card">
+        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs lg:col-span-7 flex flex-col justify-between h-[288px]" id="status-pie-card">
           <div className="grid grid-cols-1 md:grid-cols-12 gap-4 h-full items-center">
             
             {/* Coluna Esquerda: Título, Descrição e Legenda */}
-            <div className="md:col-span-7 flex flex-col justify-between h-full py-0.5">
+            <div className="md:col-span-7 flex flex-col justify-between h-full py-1">
               <div>
                 <h3 className="font-display font-bold text-slate-800 text-sm">Distribuição Global de Contas</h3>
                 <p className="text-slate-400 text-[11px] mt-0.5">Visão consolidada da integridade do Active Directory</p>
@@ -345,16 +391,16 @@ export default function Dashboard({
             </div>
 
             {/* Coluna Direita: Pie Chart com Valor Central */}
-            <div className="md:col-span-5 h-full relative flex items-center justify-center min-h-[130px]">
-              <div className="h-32 w-32 relative flex items-center justify-center">
+            <div className="md:col-span-5 h-full relative flex items-center justify-center min-h-[160px]">
+              <div className="h-44 w-44 relative flex items-center justify-center">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
                       data={statusData}
                       cx="50%"
                       cy="50%"
-                      innerRadius={30}
-                      outerRadius={48}
+                      innerRadius={42}
+                      outerRadius={65}
                       paddingAngle={3}
                       dataKey="value"
                     >
@@ -368,8 +414,8 @@ export default function Dashboard({
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="absolute text-center pointer-events-none">
-                  <span className="text-lg font-bold font-display text-slate-700 leading-none">{users.length}</span>
-                  <p className="text-[7px] text-slate-400 font-bold tracking-wider uppercase mt-0.5">Total</p>
+                  <span className="text-xl font-bold font-display text-slate-700 leading-none">{users.length}</span>
+                  <p className="text-[8px] text-slate-400 font-bold tracking-wider uppercase mt-1">Total</p>
                 </div>
               </div>
             </div>
