@@ -607,15 +607,8 @@ export default function Dashboard({
             </div>
           )}
 
-          <div className="mt-1 pt-1.5 border-t border-slate-50 text-[10px] text-slate-500 flex items-center justify-between">
-            <span>Acesse a aba GPOs para auditoria.</span>
-            <button 
-              onClick={() => onNavigate('gpos')} 
-              className="text-blue-600 hover:text-blue-800 font-bold"
-            >
-              Ver Detalhes &rarr;
-            </button>
-          </div>
+
+        
         </div>
 
       </div>
