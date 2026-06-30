@@ -262,7 +262,7 @@ export default function Dashboard({
             </div>
             <div className="min-w-0 flex-1">
               <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-600 block">Contas</span>
-              <h3 className="text-xs font-semibold text-slate-500 mt-0.5 truncate">Ativas no Mês</h3>
+              <h3 className="text-xs font-semibold text-slate-500 mt-0.5 truncate">Ativas</h3>
               <div className="flex items-baseline gap-1 mt-0.5 leading-none">
                 <span className="text-xl font-display font-bold text-slate-800">{activeInCurrentMonth.length}</span>
                 <span className="text-[9px] text-emerald-600 font-semibold truncate">Habilitadas</span>
