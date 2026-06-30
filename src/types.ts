@@ -20,6 +20,8 @@ export interface ADUser {
   memberOf: string[]; // Grupos do AD
   phone: string;
   mustChangePwd: boolean; // Deve alterar senha no próximo logon
+  passwordNeverExpires?: boolean; // Senha nunca expira
+  userCannotChangePassword?: boolean; // Usuário não pode alterar senha
 }
 
 export interface AuditLog {

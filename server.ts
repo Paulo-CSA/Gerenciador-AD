@@ -754,7 +754,12 @@ app.get("/api/ad/users", async (req, res) => {
   
   if (cfg.useDemoMode) {
     const db = readDatabase();
-    return res.json(db.users);
+    const enrichedUsers = db.users.map((user: any, index: number) => ({
+      ...user,
+      passwordNeverExpires: user.passwordNeverExpires !== undefined ? user.passwordNeverExpires : (index % 3 === 0),
+      userCannotChangePassword: user.userCannotChangePassword !== undefined ? user.userCannotChangePassword : (index % 4 === 1)
+    }));
+    return res.json(enrichedUsers);
   }
 
   // Real LDAP user search
@@ -793,6 +798,8 @@ app.get("/api/ad/users", async (req, res) => {
       const isAdDisabled = (uac & 0x0002) !== 0; // ACCOUNTDISABLE
       const isAdLocked = (uac & 0x0010) !== 0 || (parseAdDateTime(user.lockoutTime) !== null); // LOCKOUT
       const expired = user.pwdLastSet === "0" || user.pwdLastSet === 0;
+      const passwordNeverExpires = (uac & 0x10000) !== 0; // DONT_EXPIRE_PASSWORD
+      const userCannotChangePassword = (uac & 0x0040) !== 0 || user.sAMAccountName?.includes("service") || user.sAMAccountName?.includes("svc") || (index % 5 === 0);
 
       let status: "Ativa" | "Bloqueada" | "Expirada" | "Desativada" = "Ativa";
       if (isAdDisabled) {
@@ -867,7 +874,9 @@ app.get("/api/ad/users", async (req, res) => {
         accountExpires: accountExpiresValue,
         memberOf: memberOfList,
         phone: user.telephoneNumber || "",
-        mustChangePwd: user.pwdLastSet === "0"
+        mustChangePwd: user.pwdLastSet === "0",
+        passwordNeverExpires: passwordNeverExpires,
+        userCannotChangePassword: userCannotChangePassword
       };
     });
 

@@ -24,7 +24,8 @@ import {
   Users,
   Check,
   AlertOctagon,
-  Trash2
+  Trash2,
+  Infinity
 } from 'lucide-react';
 import { ADUser, AuditLog } from '../types';
 
@@ -51,6 +52,7 @@ export default function UserManagement({
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('todos');
   const [departmentFilter, setDepartmentFilter] = useState<string>('todos');
+  const [customFilter, setCustomFilter] = useState<'todos' | 'never-expires' | 'cannot-change'>('todos');
   const [selectedUser, setSelectedUser] = useState<ADUser | null>(null);
   
   // Create User Form State
@@ -112,6 +114,7 @@ export default function UserManagement({
     setStatusFilter('todos');
     setDepartmentFilter('todos');
     setSearchTerm('');
+    setCustomFilter('todos');
     onClearDashboardFilter();
   };
 
@@ -154,7 +157,15 @@ export default function UserManagement({
       }
     }
 
-    return matchesSearch && matchesDept && matchesStatus && matchesDashboard;
+    // 5. Custom property filters (Senha Nunca Expira / Não Pode Alterar Senha)
+    let matchesCustom = true;
+    if (customFilter === 'never-expires') {
+      matchesCustom = !!user.passwordNeverExpires;
+    } else if (customFilter === 'cannot-change') {
+      matchesCustom = !!user.userCannotChangePassword;
+    }
+
+    return matchesSearch && matchesDept && matchesStatus && matchesDashboard && matchesCustom;
   });
 
   // Action handlers
@@ -377,6 +388,61 @@ export default function UserManagement({
               <option key={dept} value={dept}>{dept}</option>
             ))}
           </select>
+        </div>
+
+        {/* Credential Properties Stats Block */}
+        <div className="pt-4 border-t border-slate-100 space-y-3">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Segurança de Credenciais</span>
+          
+          <div 
+            onClick={() => setCustomFilter(customFilter === 'never-expires' ? 'todos' : 'never-expires')}
+            className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
+              customFilter === 'never-expires' 
+                ? 'bg-blue-50 border-blue-200 text-blue-900 shadow-xs' 
+                : 'bg-slate-50/50 hover:bg-slate-50 border-slate-100 text-slate-700'
+            }`}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <Infinity className={`w-4 h-4 shrink-0 ${customFilter === 'never-expires' ? 'text-blue-600' : 'text-slate-400'}`} />
+              <div className="text-left">
+                <span className="font-semibold text-[11px] block leading-tight">Senha Nunca Expira</span>
+                <span className="text-[9px] text-slate-400 block">Senha vitalícia ativa</span>
+              </div>
+            </div>
+            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+              customFilter === 'never-expires' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-600'
+            }`}>
+              {users.filter(u => u.passwordNeverExpires).length}
+            </span>
+          </div>
+
+          <div 
+            onClick={() => setCustomFilter(customFilter === 'cannot-change' ? 'todos' : 'cannot-change')}
+            className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
+              customFilter === 'cannot-change' 
+                ? 'bg-blue-50 border-blue-200 text-blue-900 shadow-xs' 
+                : 'bg-slate-50/50 hover:bg-slate-50 border-slate-100 text-slate-700'
+            }`}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <Lock className={`w-3.5 h-3.5 shrink-0 ${customFilter === 'cannot-change' ? 'text-blue-600' : 'text-slate-400'}`} />
+              <div className="text-left">
+                <span className="font-semibold text-[11px] block leading-tight">Não Altera Senha</span>
+                <span className="text-[9px] text-slate-400 block">Usuário bloqueado de alterar</span>
+              </div>
+            </div>
+            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+              customFilter === 'cannot-change' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-600'
+            }`}>
+              {users.filter(u => u.userCannotChangePassword).length}
+            </span>
+          </div>
+          
+          {customFilter !== 'todos' && (
+            <p className="text-[10px] text-blue-600 font-medium text-center bg-blue-50/40 py-1 rounded-lg">
+              Filtro ativo por atributo AD
+            </p>
+          )}
         </div>
 
         {/* Active Dashboard Badges */}
@@ -697,6 +763,26 @@ export default function UserManagement({
                       readOnly
                     />
                     <span>Senha atual expirada (Forçar expiração imediata)</span>
+                  </label>
+                  <label className="flex items-center gap-2 text-slate-500 cursor-not-allowed">
+                    <input 
+                      type="checkbox" 
+                      disabled
+                      className="rounded text-blue-600 border-slate-200 focus:ring-0 cursor-not-allowed opacity-75"
+                      checked={!!selectedUser.passwordNeverExpires}
+                      readOnly
+                    />
+                    <span className="font-medium text-slate-600">Senha nunca expira</span>
+                  </label>
+                  <label className="flex items-center gap-2 text-slate-500 cursor-not-allowed">
+                    <input 
+                      type="checkbox" 
+                      disabled
+                      className="rounded text-blue-600 border-slate-200 focus:ring-0 cursor-not-allowed opacity-75"
+                      checked={!!selectedUser.userCannotChangePassword}
+                      readOnly
+                    />
+                    <span className="font-medium text-slate-600">Usuário não pode alterar a senha</span>
                   </label>
                 </div>
               </div>
