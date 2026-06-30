@@ -157,18 +157,18 @@ export default function UserManagement({
       } else if (dashboardFilter === 'DesativadasMes') {
         matchesDashboard = user.status === 'Desativada';
       } else if (dashboardFilter === 'NeverExpires') {
-        matchesDashboard = !!user.passwordNeverExpires;
+        matchesDashboard = user.status === 'Ativa' && !!user.passwordNeverExpires;
       } else if (dashboardFilter === 'CannotChangePassword') {
-        matchesDashboard = !!user.userCannotChangePassword;
+        matchesDashboard = user.status === 'Ativa' && !!user.userCannotChangePassword;
       }
     }
 
-    // 5. Custom property filters (Senha Nunca Expira / Não Pode Alterar Senha)
+    // 5. Custom property filters (Senha Nunca Expira / Não Pode Alterar Senha - Somente Ativas)
     let matchesCustom = true;
     if (customFilter === 'never-expires') {
-      matchesCustom = !!user.passwordNeverExpires;
+      matchesCustom = user.status === 'Ativa' && !!user.passwordNeverExpires;
     } else if (customFilter === 'cannot-change') {
-      matchesCustom = !!user.userCannotChangePassword;
+      matchesCustom = user.status === 'Ativa' && !!user.userCannotChangePassword;
     }
 
     return matchesSearch && matchesDept && matchesStatus && matchesDashboard && matchesCustom;
@@ -422,7 +422,7 @@ export default function UserManagement({
             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
               customFilter === 'never-expires' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-600'
             }`}>
-              {users.filter(u => u.passwordNeverExpires).length}
+              {users.filter(u => u.status === 'Ativa' && u.passwordNeverExpires).length}
             </span>
           </div>
 
@@ -444,7 +444,7 @@ export default function UserManagement({
             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
               customFilter === 'cannot-change' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-600'
             }`}>
-              {users.filter(u => u.userCannotChangePassword).length}
+              {users.filter(u => u.status === 'Ativa' && u.userCannotChangePassword).length}
             </span>
           </div>
           
