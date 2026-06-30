@@ -644,7 +644,7 @@ export default function Dashboard({
 
             <div className="flex justify-between items-center pb-3 border-b border-slate-50 text-xs">
               <span className="text-slate-500">Nível Funcional:</span>
-              <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-medium">Windows Server 2022</span>
+              <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-medium">Windows Server 2016</span>
             </div>
 
             <div className="flex justify-between items-center pb-3 border-b border-slate-50 text-xs">
