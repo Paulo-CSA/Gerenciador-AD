@@ -217,7 +217,7 @@ export default function App() {
           </div>
           <div>
             <span className="text-white font-semibold text-sm tracking-tight block">DirectoryAdmin</span>
-            <span className="text-[9px] font-mono text-slate-500 font-bold uppercase tracking-wider block">empresa.local</span>
+            <span className="text-[9px] font-mono text-slate-500 font-bold uppercase tracking-wider block">Inema</span>
           </div>
         </div>
 
@@ -367,8 +367,7 @@ export default function App() {
               AS
             </div>
             <div className="truncate">
-              <p className="text-xs text-white font-medium truncate">admin.silva</p>
-              <p className="text-[10px] opacity-50 text-slate-300">ID: 992-AD</p>
+              <p className="text-xs text-white font-medium truncate">admin</p>
             </div>
           </div>
         </div>
