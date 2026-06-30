@@ -22,6 +22,7 @@ export interface ADUser {
   mustChangePwd: boolean; // Deve alterar senha no próximo logon
   passwordNeverExpires?: boolean; // Senha nunca expira
   userCannotChangePassword?: boolean; // Usuário não pode alterar senha
+  logonScript?: string; // Script de logon (.bat)
 }
 
 export interface AuditLog {

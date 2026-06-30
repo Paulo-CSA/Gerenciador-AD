@@ -16,7 +16,8 @@ import {
   ShieldCheck, 
   ArrowUpRight,
   Clock,
-  Shield
+  Shield,
+  FileCode
 } from 'lucide-react';
 
 import { ADUser, AuditLog } from './types';
@@ -31,6 +32,7 @@ import Alerts from './components/Alerts';
 import AuditLogs from './components/AuditLogs';
 import AdConfigPanel from './components/AdConfigPanel';
 import GroupPolicies from './components/GroupPolicies';
+import Scripts from './components/Scripts';
 
 export default function App() {
   // Navigation State
@@ -294,6 +296,24 @@ export default function App() {
             </div>
           </div>
 
+          {/* Scripts Item */}
+          <div 
+            onClick={() => {
+              setActiveTab('scripts');
+              setDashboardFilter(null);
+            }}
+            className={`p-3 rounded-md flex items-center justify-between transition-all cursor-pointer ${
+              activeTab === 'scripts' 
+                ? 'active-nav text-white font-medium' 
+                : 'hover:bg-slate-800 text-slate-300'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <FileCode className="w-4 h-4 opacity-80" />
+              <span className="text-xs opacity-90">Scripts de Logon</span>
+            </div>
+          </div>
+
           {/* Reports Item */}
           <div 
             onClick={() => setActiveTab('relatorios')}
@@ -383,6 +403,7 @@ export default function App() {
             {activeTab === 'contas' && 'Gerenciamento de Objetos de Contas'}
             {activeTab === 'grupos' && 'Grupos de Segurança e Distribuição'}
             {activeTab === 'gpos' && 'Diretivas de Políticas de Grupo (GPO)'}
+            {activeTab === 'scripts' && 'Scripts de Logon de Inicialização (.BAT)'}
             {activeTab === 'relatorios' && 'Relatório Customizado de Auditoria'}
             {activeTab === 'alertas' && 'Central de Alertas de Inatividade'}
             {activeTab === 'logs' && 'Logs de Auditoria AD'}
@@ -463,6 +484,20 @@ export default function App() {
               transition={{ duration: 0.25 }}
             >
               <GroupPolicies />
+            </motion.div>
+          )}
+
+          {activeTab === 'scripts' && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25 }}
+            >
+              <Scripts 
+                users={users}
+                onUpdateUser={handleUpdateUser}
+                onAddAuditLog={handleAddAuditLog}
+              />
             </motion.div>
           )}
 

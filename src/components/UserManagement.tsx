@@ -68,6 +68,7 @@ export default function UserManagement({
   const [newUserMustChangePwd, setNewUserMustChangePwd] = useState(true);
   const [newUserPasswordNeverExpires, setNewUserPasswordNeverExpires] = useState(false);
   const [newUserUserCannotChangePassword, setNewUserUserCannotChangePassword] = useState(false);
+  const [newUserLogonScript, setNewUserLogonScript] = useState('');
 
   // Quick Action States
   const [resettingPassword, setResettingPassword] = useState(false);
@@ -317,7 +318,8 @@ export default function UserManagement({
       phone: newUserPhone || 'Não informado',
       mustChangePwd: newUserMustChangePwd,
       passwordNeverExpires: newUserPasswordNeverExpires,
-      userCannotChangePassword: newUserUserCannotChangePassword
+      userCannotChangePassword: newUserUserCannotChangePassword,
+      logonScript: newUserLogonScript
     };
 
     onAddUser(createdUser);
@@ -332,6 +334,7 @@ export default function UserManagement({
     setNewUserExpires('');
     setNewUserPasswordNeverExpires(false);
     setNewUserUserCannotChangePassword(false);
+    setNewUserLogonScript('');
 
     onAddAuditLog({
       id: Math.random().toString(),
@@ -727,6 +730,12 @@ export default function UserManagement({
                   <span className="text-slate-400 block mb-0.5">Unidade Organizacional (OU)</span>
                   <span className="text-slate-500 font-mono text-[10px] truncate block" title={selectedUser.ou}>{selectedUser.ou}</span>
                 </div>
+                <div>
+                  <span className="text-slate-400 block mb-0.5">Script de Logon (.bat)</span>
+                  <span className="font-mono text-[11px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200/50 inline-block">
+                    {selectedUser.logonScript || "Nenhum"}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -1039,6 +1048,19 @@ export default function UserManagement({
                     className="w-full px-3 py-2 border border-slate-200 bg-slate-50 text-slate-500 rounded-xl text-xs font-mono cursor-not-allowed"
                     value={newUserOU}
                   />
+                </div>
+
+                {/* Script de Logon */}
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-600">Script de Logon (.bat / .cmd)</label>
+                  <input 
+                    type="text" 
+                    placeholder="Ex: standard_logon.bat (Deixe vazio para nenhum)"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-mono focus:ring-2 focus:ring-blue-500"
+                    value={newUserLogonScript}
+                    onChange={(e) => setNewUserLogonScript(e.target.value)}
+                  />
+                  <span className="text-[10px] text-slate-400 block">Script de inicialização executado no logon do usuário (armazenado no SYSVOL).</span>
                 </div>
 
                 {/* Account expiration and password configs */}

@@ -549,11 +549,24 @@ const initialUsersRaw = [
   }
 ];
 
-const initialUsers = initialUsersRaw.map((u, index) => ({
-  ...u,
-  passwordNeverExpires: (index % 3 === 0),
-  userCannotChangePassword: (index % 4 === 1)
-}));
+const initialUsers = initialUsersRaw.map((u, index) => {
+  let logonScript = "";
+  if (u.department === "Tecnologia da Informação") {
+    logonScript = "ti_tools.bat";
+  } else if (u.department === "Financeiro") {
+    logonScript = "financeiro_net.bat";
+  } else if (u.department === "Comercial") {
+    logonScript = "mapeamento_vendas.bat";
+  } else if (index % 5 === 0) {
+    logonScript = "standard_logon.bat";
+  }
+  return {
+    ...u,
+    passwordNeverExpires: (index % 3 === 0),
+    userCannotChangePassword: (index % 4 === 1),
+    logonScript: logonScript || ""
+  };
+});
 
 const initialAuditLogs = [
   {
@@ -609,6 +622,20 @@ function readDatabase() {
         }
         if (user.userCannotChangePassword === undefined) {
           user.userCannotChangePassword = (index % 4 === 1);
+          uModified = true;
+        }
+        if (user.logonScript === undefined) {
+          let logonScript = "";
+          if (user.department === "Tecnologia da Informação") {
+            logonScript = "ti_tools.bat";
+          } else if (user.department === "Financeiro") {
+            logonScript = "financeiro_net.bat";
+          } else if (user.department === "Comercial") {
+            logonScript = "mapeamento_vendas.bat";
+          } else if (index % 5 === 0) {
+            logonScript = "standard_logon.bat";
+          }
+          user.logonScript = logonScript || "";
           uModified = true;
         }
         if (uModified) {
@@ -806,7 +833,7 @@ app.get("/api/ad/users", async (req, res) => {
     'dn', 'distinguishedName', 'cn', 'displayName', 'sAMAccountName', 
     'mail', 'department', 'title', 'userAccountControl', 'whenCreated', 
     'lastLogon', 'lastLogonTimestamp', 'pwdLastSet', 'accountExpires', 
-    'memberOf', 'telephoneNumber', 'objectGUID', 'lockoutTime'
+    'memberOf', 'telephoneNumber', 'objectGUID', 'lockoutTime', 'scriptPath'
   ];
 
   adInstance.findUsers({ 
@@ -907,7 +934,8 @@ app.get("/api/ad/users", async (req, res) => {
         phone: user.telephoneNumber || "",
         mustChangePwd: user.pwdLastSet === "0",
         passwordNeverExpires: passwordNeverExpires,
-        userCannotChangePassword: userCannotChangePassword
+        userCannotChangePassword: userCannotChangePassword,
+        logonScript: user.scriptPath || ""
       };
     });
 
