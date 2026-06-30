@@ -241,7 +241,7 @@ export default function Dashboard({
         </div>
         <div className="flex items-center gap-2 text-xs font-medium text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-full self-start md:self-auto">
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-          Replicação: Saudável | Servidor: DC-PRIMARY-01
+          Replicação: Saudável | Servidor: CASANOVA
         </div>
       </div>
 

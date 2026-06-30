@@ -192,7 +192,7 @@ export default function AuditLogs({ auditLogs, onClearLogs }: AuditLogsProps) {
       <div className="bg-slate-900 rounded-xl p-4 border border-slate-800 flex items-start gap-3 text-slate-300 font-mono text-[11px] leading-relaxed no-print">
         <Terminal className="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0" />
         <div className="space-y-1">
-          <p className="text-blue-300"># dcdiag /test:ActiveDirectory /s:DC-PRIMARY-01</p>
+          <p className="text-blue-300"># dcdiag /test:ActiveDirectory /s:CASANOVA</p>
           <p className="text-slate-400">
             Testing server: DC-PRIMARY-01 <br />
             Starting test: Connectivity .......... Passed <br />
