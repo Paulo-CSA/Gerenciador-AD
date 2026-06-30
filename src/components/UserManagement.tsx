@@ -521,6 +521,7 @@ export default function UserManagement({
                 <tr className="border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider bg-slate-50/50">
                   <th className="py-2.5 px-4">Nome completo / Logon</th>
                   <th className="py-2.5 px-4">Departamento / Unidade</th>
+                  <th className="py-2.5 px-4">Conta Criada</th>
                   <th className="py-2.5 px-4">Último Logon</th>
                   <th className="py-2.5 px-4">Status</th>
                   <th className="py-2.5 px-4 text-center">Ações</th>
@@ -545,6 +546,9 @@ export default function UserManagement({
                           <span className="text-slate-700 block">{user.department}</span>
                           <span className="text-[10px] text-slate-400 font-mono block max-w-xs truncate">{user.ou.split(',')[0]}</span>
                         </div>
+                      </td>
+                      <td className="py-3 px-4 font-mono text-[11px] text-slate-500">
+                        {user.createdDate}
                       </td>
                       <td className="py-3 px-4 font-mono text-[11px] text-slate-500">
                         {user.lastLogon}
