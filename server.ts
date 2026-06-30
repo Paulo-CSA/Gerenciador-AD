@@ -29,7 +29,8 @@ const defaultConfig = {
   password: "Password123",
   domain: "empresa.local",
   useDemoMode: true,
-  inactivityDays: 90
+  inactivityDays: 90,
+  functionalLevel: "Windows Server 2012"
 };
 
 // Ensure configuration file exists
@@ -688,7 +689,8 @@ app.get("/api/ad/status", async (req, res) => {
       baseDN: cfg.baseDN,
       username: cfg.username,
       domain: cfg.domain,
-      inactivityDays: cfg.inactivityDays !== undefined ? cfg.inactivityDays : 90
+      inactivityDays: cfg.inactivityDays !== undefined ? cfg.inactivityDays : 90,
+      functionalLevel: cfg.functionalLevel || "Windows Server 2012"
     },
     connected: test.success,
     error: test.error
@@ -697,7 +699,7 @@ app.get("/api/ad/status", async (req, res) => {
 
 // 2. Save AD Connection Config
 app.post("/api/ad/save-config", async (req, res) => {
-  const { url, baseDN, username, password, domain, useDemoMode, inactivityDays } = req.body;
+  const { url, baseDN, username, password, domain, useDemoMode, inactivityDays, functionalLevel } = req.body;
   const current = readConfig();
   
   const updated = {
@@ -707,7 +709,8 @@ app.post("/api/ad/save-config", async (req, res) => {
     password: (password !== undefined && password !== "") ? password : current.password,
     domain: domain !== undefined ? domain : current.domain,
     useDemoMode: useDemoMode !== undefined ? useDemoMode : current.useDemoMode,
-    inactivityDays: inactivityDays !== undefined ? inactivityDays : (current.inactivityDays !== undefined ? current.inactivityDays : 90)
+    inactivityDays: inactivityDays !== undefined ? inactivityDays : (current.inactivityDays !== undefined ? current.inactivityDays : 90),
+    functionalLevel: functionalLevel !== undefined ? functionalLevel : (current.functionalLevel !== undefined ? current.functionalLevel : "Windows Server 2012")
   };
 
   const connectionParamsChanged = 
@@ -739,7 +742,8 @@ app.post("/api/ad/save-config", async (req, res) => {
       baseDN: updated.baseDN,
       username: updated.username,
       domain: updated.domain,
-      inactivityDays: updated.inactivityDays
+      inactivityDays: updated.inactivityDays,
+      functionalLevel: updated.functionalLevel
     }
   });
 });

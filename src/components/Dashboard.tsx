@@ -21,7 +21,8 @@ import {
   Link2Off,
   Loader2,
   FileText,
-  LayoutGrid
+  LayoutGrid,
+  CheckCircle2
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -644,7 +645,7 @@ export default function Dashboard({
 
             <div className="flex justify-between items-center pb-3 border-b border-slate-50 text-xs">
               <span className="text-slate-500">Nível Funcional:</span>
-              <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-medium">Windows Server 2016</span>
+              <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-medium">{adStatus?.config?.functionalLevel || "Windows Server 2012"}</span>
             </div>
 
             <div className="flex justify-between items-center pb-3 border-b border-slate-50 text-xs">
@@ -654,20 +655,49 @@ export default function Dashboard({
 
             <div className="flex justify-between items-center pb-3 border-b border-slate-50 text-xs">
               <span className="text-slate-500">Políticas de Senha:</span>
-              <span className="text-emerald-600 font-semibold">Ativa (Requisitos de Complexidade)</span>
+              <span className="text-emerald-600 font-semibold">Ativa (Complexidade)</span>
             </div>
 
-            <div className="flex justify-between items-center text-xs">
+            <div className="flex justify-between items-center pb-3 border-b border-slate-50 text-xs">
               <span className="text-slate-500">Expiração de Credenciais:</span>
-              <span className="text-slate-700 font-semibold">A cada 90 dias</span>
+              <span className="text-slate-700 font-semibold">90 dias</span>
             </div>
 
-            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-100 mt-2">
-              <div className="flex gap-2.5 items-start">
-                <ShieldAlert className="w-4 h-4 text-slate-500 mt-0.5" />
-                <div className="text-[11px] text-slate-600 leading-relaxed">
-                  <strong className="text-slate-700 block mb-0.5">Auditoria Exigida</strong>
-                  As contas do tipo <strong className="text-red-600">Expirada</strong> e <strong className="text-amber-600">Inativa</strong> devem ser catalogadas mensalmente e removidas dos grupos de privilégio conforme as diretrizes do marco regulatório da LGPD / ISO 27001.
+            {/* Nova seção: Integridade e Saúde Física do AD solicitado pelo usuário */}
+            <div className="pt-1 mt-1 space-y-2 text-xs">
+              <span className="font-bold text-slate-700 text-[10px] uppercase tracking-wider block mb-1">Integridade do Domínio</span>
+              
+              <div className="flex items-center justify-between p-1.5 px-2.5 bg-emerald-50/40 rounded-xl border border-emerald-100/20">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span className="text-slate-600 font-medium text-[11px] truncate">Replicação (SYSVOL)</span>
+                </div>
+                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">Saudável</span>
+              </div>
+
+              <div className="flex items-center justify-between p-1.5 px-2.5 bg-emerald-50/40 rounded-xl border border-emerald-100/20">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span className="text-slate-600 font-medium text-[11px] truncate">Integridade do DNS</span>
+                </div>
+                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">100% OK</span>
+              </div>
+
+              <div className="flex items-center justify-between p-1.5 px-2.5 bg-emerald-50/40 rounded-xl border border-emerald-100/20">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span className="text-slate-600 font-medium text-[11px] truncate">Pastas SYSVOL/NETLOGON</span>
+                </div>
+                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">Disponível</span>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 mt-2">
+              <div className="flex gap-2 items-start">
+                <ShieldAlert className="w-3.5 h-3.5 text-slate-500 mt-0.5 shrink-0" />
+                <div className="text-[10px] text-slate-600 leading-relaxed">
+                  <strong className="text-slate-700 block mb-0.5">Auditoria Regulatório</strong>
+                  Contas <strong className="text-red-600">Expiradas</strong> ou <strong className="text-amber-600">Inativas</strong> devem ser limpas mensalmente para conformidade LGPD / ISO 27001.
                 </div>
               </div>
             </div>

@@ -26,7 +26,8 @@ export default function AdConfigPanel({ onConfigChanged }: AdConfigPanelProps) {
     username: "admin@empresa.local",
     password: "",
     domain: "empresa.local",
-    useDemoMode: true
+    useDemoMode: true,
+    functionalLevel: "Windows Server 2012"
   });
 
   const [status, setStatus] = useState<{
@@ -62,7 +63,8 @@ export default function AdConfigPanel({ onConfigChanged }: AdConfigPanelProps) {
           baseDN: data.config.baseDN || prev.baseDN,
           username: data.config.username || prev.username,
           domain: data.config.domain || prev.domain,
-          useDemoMode: data.useDemoMode
+          useDemoMode: data.useDemoMode,
+          functionalLevel: data.config.functionalLevel || "Windows Server 2012"
         }));
       }
     } catch (err) {
@@ -268,6 +270,25 @@ export default function AdConfigPanel({ onConfigChanged }: AdConfigPanelProps) {
                   />
                 </div>
                 <p className="text-[10px] text-slate-400">Domínio Windows para geração automática de User Principal Name (UPN) e e-mails.</p>
+              </div>
+
+              <div className="space-y-1 md:col-span-2">
+                <label className="text-xs font-semibold text-slate-600 block">Nível Funcional do Domínio</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-slate-400"><Database className="w-4 h-4" /></span>
+                  <select 
+                    className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white"
+                    value={config.functionalLevel}
+                    onChange={(e) => setConfig({ ...config, functionalLevel: e.target.value })}
+                  >
+                    <option value="Windows Server 2008">Windows Server 2008</option>
+                    <option value="Windows Server 2008 R2">Windows Server 2008 R2</option>
+                    <option value="Windows Server 2012">Windows Server 2012</option>
+                    <option value="Windows Server 2012 R2">Windows Server 2012 R2</option>
+                    <option value="Windows Server 2016">Windows Server 2016</option>
+                  </select>
+                </div>
+                <p className="text-[10px] text-slate-400">Define o nível funcional do domínio para compatibilidade de relatórios de conformidade.</p>
               </div>
             </div>
 
