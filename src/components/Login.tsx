@@ -258,7 +258,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                 className="p-2 bg-slate-800 hover:bg-slate-700 border border-slate-700/50 rounded-xl text-left text-slate-300 transition-colors flex flex-col cursor-pointer"
               >
                 <span className="font-bold text-white truncate">adm.paulo.andrade</span>
-                <span className="text-emerald-400 text-[9px] truncate">Filtro 'adm.' Adm ✅</span>
+                <span className="text-emerald-400 text-[9px] truncate">APP_GerenciaAD ✅</span>
               </button>
             </div>
           </motion.div>

@@ -211,18 +211,6 @@ function extractOU(dn: string, fallbackDepartment: string = "Geral"): string {
 function isUserAdministrative(user: any): boolean {
   if (!user || !user.username) return false;
   
-  const usernameLower = user.username.toLowerCase();
-  
-  // Permitir acesso para contas de administrador que começam com adm. ou admin.
-  if (
-    usernameLower === "admin" || 
-    usernameLower === "administrator" || 
-    usernameLower.startsWith("adm.") || 
-    usernameLower.startsWith("admin.")
-  ) {
-    return true;
-  }
-  
   if (user.memberOf && Array.isArray(user.memberOf)) {
     return user.memberOf.some((grp: string) => {
       if (!grp) return false;

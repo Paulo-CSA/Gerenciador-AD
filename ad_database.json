@@ -306,7 +306,8 @@
       "accountExpires": null,
       "memberOf": [
         "GG-TI-Infra",
-        "Domain Users"
+        "Domain Users",
+        "APP_GerenciaAD"
       ],
       "phone": "(11) 99999-8888",
       "mustChangePwd": false,
