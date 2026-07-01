@@ -219,10 +219,10 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           >
             <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
               <UserCheck className="w-4 h-4 text-emerald-500" />
-              <span>Contas de Teste Administrador (Modo Simulação)</span>
+              <span>Contas de Teste AD (Modo Simulação)</span>
             </div>
             <p className="text-[10px] text-slate-400">
-              Apenas contas com privilégios administrativos podem logar. Clique para preencher automaticamente (senha padrão: <code className="font-mono text-slate-300 bg-slate-800 px-1 rounded">Password123</code>):
+              O acesso ao sistema é restrito a membros do grupo <code className="text-blue-400 font-mono font-bold bg-slate-900 px-1 py-0.5 rounded">APP_GerenciaAD</code>. Clique para preencher (senha: <code className="font-mono text-slate-300 bg-slate-800 px-1 rounded">Password123</code>):
             </p>
             <div className="grid grid-cols-2 gap-2 text-[10px]">
               <button
@@ -230,28 +230,28 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                 className="p-2 bg-slate-800 hover:bg-slate-700 border border-slate-700/50 rounded-xl text-left text-slate-300 transition-colors flex flex-col cursor-pointer"
               >
                 <span className="font-bold text-white truncate">ana.santos</span>
-                <span className="text-slate-400 text-[9px] truncate">TI / Infraestrutura</span>
+                <span className="text-emerald-400 text-[9px] truncate">APP_GerenciaAD ✅</span>
               </button>
               <button
                 onClick={() => handleQuickFill('lucas.oliveira')}
                 className="p-2 bg-slate-800 hover:bg-slate-700 border border-slate-700/50 rounded-xl text-left text-slate-300 transition-colors flex flex-col cursor-pointer"
               >
                 <span className="font-bold text-white truncate">lucas.oliveira</span>
-                <span className="text-slate-400 text-[9px] truncate">Suporte / TI</span>
+                <span className="text-emerald-400 text-[9px] truncate">APP_GerenciaAD ✅</span>
               </button>
               <button
                 onClick={() => handleQuickFill('carlos.souza')}
-                className="p-2 bg-slate-800 hover:bg-slate-700 border border-slate-700/50 rounded-xl text-left text-slate-300 transition-colors flex flex-col cursor-pointer"
+                className="p-2 bg-slate-800 hover:bg-slate-700 border border-slate-700/50 rounded-xl text-left text-slate-300 transition-colors flex flex-col cursor-pointer opacity-75"
               >
-                <span className="font-bold text-white truncate">carlos.souza</span>
-                <span className="text-slate-400 text-[9px] truncate">Financeiro (Líder)</span>
+                <span className="font-bold text-slate-400 truncate">carlos.souza</span>
+                <span className="text-red-400 text-[9px] truncate">Sem Permissão ❌</span>
               </button>
               <button
                 onClick={() => handleQuickFill('admin')}
                 className="p-2 bg-slate-800 hover:bg-slate-700 border border-slate-700/50 rounded-xl text-left text-slate-300 transition-colors flex flex-col cursor-pointer"
               >
                 <span className="font-bold text-white truncate">admin</span>
-                <span className="text-slate-400 text-[9px] truncate">Administrador Geral</span>
+                <span className="text-emerald-400 text-[9px] truncate">APP_GerenciaAD ✅</span>
               </button>
             </div>
           </motion.div>

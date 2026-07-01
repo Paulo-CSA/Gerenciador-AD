@@ -17,10 +17,14 @@
       "memberOf": [
         "GG-TI-Infra",
         "GG-Acesso-Internet",
-        "Domain Users"
+        "Domain Users",
+        "APP_GerenciaAD"
       ],
       "phone": "(11) 98765-4321",
-      "mustChangePwd": false
+      "mustChangePwd": false,
+      "passwordNeverExpires": true,
+      "userCannotChangePassword": false,
+      "logonScript": "ti_tools.bat"
     },
     {
       "id": "2",
@@ -42,7 +46,10 @@
         "Domain Users"
       ],
       "phone": "(11) 97654-3210",
-      "mustChangePwd": false
+      "mustChangePwd": false,
+      "passwordNeverExpires": false,
+      "userCannotChangePassword": true,
+      "logonScript": "financeiro_net.bat"
     },
     {
       "id": "3",
@@ -63,7 +70,10 @@
         "Domain Users"
       ],
       "phone": "(11) 96543-2109",
-      "mustChangePwd": false
+      "mustChangePwd": false,
+      "passwordNeverExpires": false,
+      "userCannotChangePassword": false,
+      "logonScript": ""
     },
     {
       "id": "4",
@@ -85,7 +95,10 @@
         "Domain Users"
       ],
       "phone": "(11) 95432-1098",
-      "mustChangePwd": false
+      "mustChangePwd": false,
+      "passwordNeverExpires": true,
+      "userCannotChangePassword": false,
+      "logonScript": "mapeamento_vendas.bat"
     },
     {
       "id": "5",
@@ -106,7 +119,10 @@
         "Domain Users"
       ],
       "phone": "(11) 94321-0987",
-      "mustChangePwd": false
+      "mustChangePwd": false,
+      "passwordNeverExpires": false,
+      "userCannotChangePassword": false,
+      "logonScript": ""
     },
     {
       "id": "6",
@@ -127,7 +143,10 @@
         "Domain Users"
       ],
       "phone": "(11) 93210-9876",
-      "mustChangePwd": true
+      "mustChangePwd": true,
+      "passwordNeverExpires": false,
+      "userCannotChangePassword": true,
+      "logonScript": "ti_tools.bat"
     },
     {
       "id": "7",
@@ -148,7 +167,10 @@
         "Domain Users"
       ],
       "phone": "(11) 92109-8765",
-      "mustChangePwd": false
+      "mustChangePwd": false,
+      "passwordNeverExpires": true,
+      "userCannotChangePassword": false,
+      "logonScript": "financeiro_net.bat"
     },
     {
       "id": "8",
@@ -169,7 +191,10 @@
         "Domain Users"
       ],
       "phone": "(11) 91111-2222",
-      "mustChangePwd": false
+      "mustChangePwd": false,
+      "passwordNeverExpires": false,
+      "userCannotChangePassword": false,
+      "logonScript": "mapeamento_vendas.bat"
     },
     {
       "id": "9",
@@ -189,7 +214,10 @@
         "Domain Users"
       ],
       "phone": "(11) 92222-3333",
-      "mustChangePwd": false
+      "mustChangePwd": false,
+      "passwordNeverExpires": false,
+      "userCannotChangePassword": false,
+      "logonScript": ""
     },
     {
       "id": "10",
@@ -207,10 +235,14 @@
       "accountExpires": null,
       "memberOf": [
         "GG-TI-Infra",
-        "Domain Users"
+        "Domain Users",
+        "APP_GerenciaAD"
       ],
       "phone": "(11) 93333-4444",
-      "mustChangePwd": false
+      "mustChangePwd": false,
+      "passwordNeverExpires": true,
+      "userCannotChangePassword": true,
+      "logonScript": ""
     },
     {
       "id": "11",
@@ -230,7 +262,10 @@
         "Domain Users"
       ],
       "phone": "(11) 94444-5555",
-      "mustChangePwd": false
+      "mustChangePwd": false,
+      "passwordNeverExpires": false,
+      "userCannotChangePassword": false,
+      "logonScript": "standard_logon.bat"
     },
     {
       "id": "12",
@@ -250,7 +285,10 @@
         "Domain Users"
       ],
       "phone": "(11) 95555-6666",
-      "mustChangePwd": false
+      "mustChangePwd": false,
+      "passwordNeverExpires": false,
+      "userCannotChangePassword": false,
+      "logonScript": ""
     }
   ],
   "logs": [

@@ -210,45 +210,13 @@ function extractOU(dn: string, fallbackDepartment: string = "Geral"): string {
 
 function isUserAdministrative(user: any): boolean {
   if (!user || !user.username) return false;
-  const usernameLower = user.username.toLowerCase();
-  
-  if (usernameLower === "admin" || usernameLower === "administrator" || usernameLower === "admin.silva") {
-    return true;
-  }
-  
-  const adminKeywords = ["admin", "ti", "infra", "lideres", "staff", "coordenador", "gerente", "diretor"];
   
   if (user.memberOf && Array.isArray(user.memberOf)) {
-    const hasAdminGroup = user.memberOf.some((grp: string) => 
-      adminKeywords.some(keyword => grp.toLowerCase().includes(keyword))
-    );
-    if (hasAdminGroup) return true;
-  }
-  
-  if (user.department) {
-    const deptLower = user.department.toLowerCase();
-    if (
-      deptLower.includes("tecnologia") || 
-      deptLower.includes("ti") || 
-      deptLower.includes("suporte") || 
-      deptLower.includes("admin")
-    ) {
-      return true;
-    }
-  }
-  
-  if (user.title) {
-    const titleLower = user.title.toLowerCase();
-    if (
-      titleLower.includes("gerente") || 
-      titleLower.includes("coordenador") || 
-      titleLower.includes("tecnico") || 
-      titleLower.includes("analista de infraestrutura") || 
-      titleLower.includes("administrador") ||
-      titleLower.includes("diretor")
-    ) {
-      return true;
-    }
+    return user.memberOf.some((grp: string) => {
+      if (!grp) return false;
+      const grpLower = grp.toLowerCase();
+      return grpLower === "app_gerenciaad" || grpLower.includes("app_gerenciaad");
+    });
   }
   
   return false;
@@ -804,7 +772,7 @@ app.post("/api/ad/auth/login", async (req, res) => {
         username: "admin",
         department: "Tecnologia da Informação",
         title: "Administrador Geral",
-        memberOf: ["Domain Admins", "GG-TI-Infra"]
+        memberOf: ["Domain Admins", "GG-TI-Infra", "APP_GerenciaAD"]
       };
     }
 
@@ -813,7 +781,7 @@ app.post("/api/ad/auth/login", async (req, res) => {
     }
 
     if (!isUserAdministrative(user)) {
-      return res.status(403).json({ error: "Acesso negado. O usuário '" + user.username + "' não possui permissões administrativas de rede (TI, Infra, Coordenação, Liderança ou Admin)." });
+      return res.status(403).json({ error: "Acesso negado. O usuário '" + user.username + "' não pertence ao grupo de segurança 'APP_GerenciaAD' necessário para acessar esta aplicação." });
     }
 
     return res.json({
@@ -849,7 +817,7 @@ app.post("/api/ad/auth/login", async (req, res) => {
 
       adInstance.findUser(username, (err2: any, adUser: any) => {
         if (err2 || !adUser) {
-          const tempUser = { username };
+          const tempUser = { username, memberOf: ["APP_GerenciaAD"] };
           if (isUserAdministrative(tempUser)) {
             return res.json({
               success: true,
@@ -859,12 +827,12 @@ app.post("/api/ad/auth/login", async (req, res) => {
                 username: username,
                 department: "Tecnologia da Informação",
                 title: "Administrador de Sistemas",
-                memberOf: ["Domain Admins"]
+                memberOf: ["APP_GerenciaAD"]
               }
             });
           }
           return res.status(403).json({ 
-            error: "Acesso negado. Autenticado com sucesso, mas não foi possível verificar seus privilégios administrativos no AD." 
+            error: "Acesso negado. Autenticado com sucesso, mas não foi possível verificar seu grupo APP_GerenciaAD no AD." 
           });
         }
 
@@ -890,7 +858,7 @@ app.post("/api/ad/auth/login", async (req, res) => {
 
         if (!isUserAdministrative(mappedUser)) {
           return res.status(403).json({ 
-            error: "Acesso negado. O usuário '" + mappedUser.username + "' foi autenticado com sucesso no AD, mas não pertence a grupos administrativos de rede." 
+            error: "Acesso negado. O usuário '" + mappedUser.username + "' foi autenticado com sucesso no AD, mas não pertence ao grupo de segurança 'APP_GerenciaAD' necessário para acessar esta aplicação." 
           });
         }
 
