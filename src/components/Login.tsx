@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Lock, Shield, Server, AlertCircle, Eye, EyeOff, UserCheck, ArrowRight } from 'lucide-react';
+import { Lock, Server, AlertCircle, Eye, EyeOff, ArrowRight } from 'lucide-react';
 
 interface LoginProps {
   onLoginSuccess: (user: any) => void;
@@ -14,7 +14,6 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   const [error, setError] = useState<string | null>(null);
   
   // Connection status from server
-  const [useDemoMode, setUseDemoMode] = useState(true);
   const [adConnected, setAdConnected] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -25,7 +24,6 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         const res = await fetch('/api/ad/status');
         if (res.ok) {
           const data = await res.json();
-          setUseDemoMode(data.useDemoMode);
           setAdConnected(data.connected);
           setServerError(data.error);
         }
@@ -67,13 +65,6 @@ export default function Login({ onLoginSuccess }: LoginProps) {
     }
   };
 
-  // Quick fill helper for testing/simulation mode
-  const handleQuickFill = (user: string) => {
-    setUsername(user);
-    setPassword('Password123');
-    setError(null);
-  };
-
   return (
     <div className="min-h-screen w-screen flex items-center justify-center bg-slate-950 text-slate-100 font-sans p-4 relative overflow-hidden">
       {/* Decorative background gradients */}
@@ -102,16 +93,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           </div>
           <div className="space-y-0.5">
             <h3 className="text-xs font-bold text-slate-300">Conectividade do Servidor</h3>
-            {useDemoMode ? (
-              <div>
-                <span className="inline-flex items-center text-[10px] font-bold text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20 uppercase">
-                  Modo Simulação
-                </span>
-                <p className="text-[10px] text-slate-400 mt-1">
-                  O servidor está emulando o ambiente AD local. Use qualquer credencial administrativa de teste listada abaixo.
-                </p>
-              </div>
-            ) : adConnected ? (
+            {adConnected ? (
               <div>
                 <span className="inline-flex items-center text-[10px] font-bold text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 uppercase animate-pulse">
                   AD Real Conectado
@@ -208,61 +190,6 @@ export default function Login({ onLoginSuccess }: LoginProps) {
             </div>
           </form>
         </div>
-
-        {/* Administrative Quick-Test Accounts (Only shown when useDemoMode is true) */}
-        {useDemoMode && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.2 }}
-            className="mt-6 bg-slate-900/40 backdrop-blur-sm border border-slate-800/60 rounded-2xl p-4 space-y-3"
-          >
-            <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
-              <UserCheck className="w-4 h-4 text-emerald-500" />
-              <span>Contas de Teste AD (Modo Simulação)</span>
-            </div>
-            <p className="text-[10px] text-slate-400">
-              O acesso ao sistema é restrito a membros do grupo <code className="text-blue-400 font-mono font-bold bg-slate-900 px-1 py-0.5 rounded">APP_GerenciaAD</code>. Clique para preencher (senha: <code className="font-mono text-slate-300 bg-slate-800 px-1 rounded">Password123</code>):
-            </p>
-            <div className="grid grid-cols-2 gap-2 text-[10px]">
-              <button
-                onClick={() => handleQuickFill('ana.santos')}
-                className="p-2 bg-slate-800 hover:bg-slate-700 border border-slate-700/50 rounded-xl text-left text-slate-300 transition-colors flex flex-col cursor-pointer"
-              >
-                <span className="font-bold text-white truncate">ana.santos</span>
-                <span className="text-emerald-400 text-[9px] truncate">APP_GerenciaAD ✅</span>
-              </button>
-              <button
-                onClick={() => handleQuickFill('lucas.oliveira')}
-                className="p-2 bg-slate-800 hover:bg-slate-700 border border-slate-700/50 rounded-xl text-left text-slate-300 transition-colors flex flex-col cursor-pointer"
-              >
-                <span className="font-bold text-white truncate">lucas.oliveira</span>
-                <span className="text-emerald-400 text-[9px] truncate">APP_GerenciaAD ✅</span>
-              </button>
-              <button
-                onClick={() => handleQuickFill('carlos.souza')}
-                className="p-2 bg-slate-800 hover:bg-slate-700 border border-slate-700/50 rounded-xl text-left text-slate-300 transition-colors flex flex-col cursor-pointer opacity-75"
-              >
-                <span className="font-bold text-slate-400 truncate">carlos.souza</span>
-                <span className="text-red-400 text-[9px] truncate">Sem Permissão ❌</span>
-              </button>
-              <button
-                onClick={() => handleQuickFill('admin')}
-                className="p-2 bg-slate-800 hover:bg-slate-700 border border-slate-700/50 rounded-xl text-left text-slate-300 transition-colors flex flex-col cursor-pointer"
-              >
-                <span className="font-bold text-white truncate">admin</span>
-                <span className="text-emerald-400 text-[9px] truncate">APP_GerenciaAD ✅</span>
-              </button>
-              <button
-                onClick={() => handleQuickFill('adm.paulo.andrade')}
-                className="p-2 bg-slate-800 hover:bg-slate-700 border border-slate-700/50 rounded-xl text-left text-slate-300 transition-colors flex flex-col cursor-pointer"
-              >
-                <span className="font-bold text-white truncate">adm.paulo.andrade</span>
-                <span className="text-emerald-400 text-[9px] truncate">APP_GerenciaAD ✅</span>
-              </button>
-            </div>
-          </motion.div>
-        )}
       </motion.div>
     </div>
   );

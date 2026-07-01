@@ -759,44 +759,6 @@ app.post("/api/ad/auth/login", async (req, res) => {
 
   const cfg = readConfig();
 
-  if (cfg.useDemoMode) {
-    const db = readDatabase();
-    const cleanUsername = username.trim().toLowerCase();
-    
-    let user = db.users.find((u: any) => u.username.toLowerCase() === cleanUsername);
-    
-    if (cleanUsername === "admin") {
-      user = {
-        id: "admin-id",
-        name: "Administrador de Redes",
-        username: "admin",
-        department: "Tecnologia da Informação",
-        title: "Administrador Geral",
-        memberOf: ["Domain Admins", "GG-TI-Infra", "APP_GerenciaAD"]
-      };
-    }
-
-    if (!user) {
-      return res.status(401).json({ error: "Usuário não encontrado na base de dados simulada do AD." });
-    }
-
-    if (!isUserAdministrative(user)) {
-      return res.status(403).json({ error: "Acesso negado. O usuário '" + user.username + "' não pertence ao grupo de segurança 'APP_GerenciaAD' necessário para acessar esta aplicação." });
-    }
-
-    return res.json({
-      success: true,
-      user: {
-        id: user.id,
-        name: user.name,
-        username: user.username,
-        department: user.department,
-        title: user.title,
-        memberOf: user.memberOf || []
-      }
-    });
-  }
-
   try {
     const upn = username.includes("@") ? username : `${username}@${cfg.domain}`;
     const adInstance = new ActiveDirectory({
