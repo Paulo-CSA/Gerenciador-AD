@@ -70,7 +70,11 @@ export default function Reports({ users, onAddAuditLog }: ReportsProps) {
 
   const departments = Array.from(new Set(users.map(u => u.department)));
 
-  const handleGenerateReport = () => {
+  const handleGenerateReport = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     const start = new Date(startDate);
     const end = new Date(endDate);
     
@@ -393,6 +397,7 @@ export default function Reports({ users, onAddAuditLog }: ReportsProps) {
             </div>
 
             <button 
+              type="button"
               onClick={handleGenerateReport}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm hover:shadow-md transition-all cursor-pointer"
             >

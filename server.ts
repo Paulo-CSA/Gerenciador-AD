@@ -1131,8 +1131,28 @@ app.post("/api/ad/users/reset-password", async (req, res) => {
 app.get("/api/ad/logs", async (req, res) => {
   try {
     const db = readDatabase();
-    // Return only the application-executed logs stored in the database, sorted descending by timestamp
-    const sortedLogs = [...db.logs].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+    
+    // Filtra para pegar somente os logs de ações executadas ativamente na aplicação
+    const appActions = [
+      "Logon na Aplicação",
+      "Logoff na Aplicação",
+      "Solicitação de Relatório",
+      "Exportação de Relatório",
+      "Impressão de Relatório",
+      "Criação de Usuário",
+      "Modificação de Usuário",
+      "Exclusão de Usuário",
+      "Redefinição de Senha",
+      "Desbloqueio de Conta"
+    ];
+
+    const filteredLogs = db.logs.filter((log: any) => {
+      const isSystem = log.operator && log.operator.toLowerCase().startsWith("sistema");
+      const hasAppAction = appActions.includes(log.action);
+      return !isSystem && hasAppAction;
+    });
+
+    const sortedLogs = filteredLogs.sort((a: any, b: any) => b.timestamp.localeCompare(a.timestamp));
     res.json(sortedLogs);
   } catch (err) {
     console.error("Erro ao obter logs de auditoria da aplicação:", err);
