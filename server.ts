@@ -208,6 +208,52 @@ function extractOU(dn: string, fallbackDepartment: string = "Geral"): string {
   return fallbackDepartment;
 }
 
+function isUserAdministrative(user: any): boolean {
+  if (!user || !user.username) return false;
+  const usernameLower = user.username.toLowerCase();
+  
+  if (usernameLower === "admin" || usernameLower === "administrator" || usernameLower === "admin.silva") {
+    return true;
+  }
+  
+  const adminKeywords = ["admin", "ti", "infra", "lideres", "staff", "coordenador", "gerente", "diretor"];
+  
+  if (user.memberOf && Array.isArray(user.memberOf)) {
+    const hasAdminGroup = user.memberOf.some((grp: string) => 
+      adminKeywords.some(keyword => grp.toLowerCase().includes(keyword))
+    );
+    if (hasAdminGroup) return true;
+  }
+  
+  if (user.department) {
+    const deptLower = user.department.toLowerCase();
+    if (
+      deptLower.includes("tecnologia") || 
+      deptLower.includes("ti") || 
+      deptLower.includes("suporte") || 
+      deptLower.includes("admin")
+    ) {
+      return true;
+    }
+  }
+  
+  if (user.title) {
+    const titleLower = user.title.toLowerCase();
+    if (
+      titleLower.includes("gerente") || 
+      titleLower.includes("coordenador") || 
+      titleLower.includes("tecnico") || 
+      titleLower.includes("analista de infraestrutura") || 
+      titleLower.includes("administrador") ||
+      titleLower.includes("diretor")
+    ) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
 function getADUsersPromise(cfg: any): Promise<any[]> {
   return new Promise((resolve) => {
     if (cfg.useDemoMode) {
@@ -736,6 +782,130 @@ async function testADConnection(cfg: any): Promise<{ success: boolean; error: st
 
 // --- Active Directory API Routes ---
 
+// 0. Authenticate User with AD/Simulation Credentials
+app.post("/api/ad/auth/login", async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: "Usuário e senha são obrigatórios." });
+  }
+
+  const cfg = readConfig();
+
+  if (cfg.useDemoMode) {
+    const db = readDatabase();
+    const cleanUsername = username.trim().toLowerCase();
+    
+    let user = db.users.find((u: any) => u.username.toLowerCase() === cleanUsername);
+    
+    if (cleanUsername === "admin") {
+      user = {
+        id: "admin-id",
+        name: "Administrador de Redes",
+        username: "admin",
+        department: "Tecnologia da Informação",
+        title: "Administrador Geral",
+        memberOf: ["Domain Admins", "GG-TI-Infra"]
+      };
+    }
+
+    if (!user) {
+      return res.status(401).json({ error: "Usuário não encontrado na base de dados simulada do AD." });
+    }
+
+    if (!isUserAdministrative(user)) {
+      return res.status(403).json({ error: "Acesso negado. O usuário '" + user.username + "' não possui permissões administrativas de rede (TI, Infra, Coordenação, Liderança ou Admin)." });
+    }
+
+    return res.json({
+      success: true,
+      user: {
+        id: user.id,
+        name: user.name,
+        username: user.username,
+        department: user.department,
+        title: user.title,
+        memberOf: user.memberOf || []
+      }
+    });
+  }
+
+  try {
+    const upn = username.includes("@") ? username : `${username}@${cfg.domain}`;
+    const adInstance = new ActiveDirectory({
+      url: cfg.url,
+      baseDN: cfg.baseDN,
+      username: cfg.username,
+      password: cfg.password,
+      connectTimeout: 4000
+    });
+
+    adInstance.authenticate(upn, password, (err: any, auth: boolean) => {
+      if (err || !auth) {
+        console.warn("Falha de login no AD real para o usuário:", username, err?.message || err);
+        return res.status(401).json({ 
+          error: "Credenciais inválidas. Verifique o usuário e a senha no servidor Active Directory local." 
+        });
+      }
+
+      adInstance.findUser(username, (err2: any, adUser: any) => {
+        if (err2 || !adUser) {
+          const tempUser = { username };
+          if (isUserAdministrative(tempUser)) {
+            return res.json({
+              success: true,
+              user: {
+                id: "ad-real-user",
+                name: username,
+                username: username,
+                department: "Tecnologia da Informação",
+                title: "Administrador de Sistemas",
+                memberOf: ["Domain Admins"]
+              }
+            });
+          }
+          return res.status(403).json({ 
+            error: "Acesso negado. Autenticado com sucesso, mas não foi possível verificar seus privilégios administrativos no AD." 
+          });
+        }
+
+        const memberOfList: string[] = [];
+        if (adUser.memberOf) {
+          const rawGroups = Array.isArray(adUser.memberOf) ? adUser.memberOf : [adUser.memberOf];
+          rawGroups.forEach((dn: any) => {
+            if (dn && typeof dn === "string") {
+              const match = dn.match(/^CN=([^,]+)/i);
+              const groupName = match ? match[1] : dn;
+              if (groupName) memberOfList.push(groupName);
+            }
+          });
+        }
+
+        const mappedUser = {
+          name: adUser.displayName || adUser.cn || adUser.sAMAccountName || username,
+          username: adUser.sAMAccountName || username,
+          department: extractOU(adUser.dn || adUser.distinguishedName || "", adUser.department || "Geral"),
+          title: adUser.title || "Colaborador",
+          memberOf: memberOfList
+        };
+
+        if (!isUserAdministrative(mappedUser)) {
+          return res.status(403).json({ 
+            error: "Acesso negado. O usuário '" + mappedUser.username + "' foi autenticado com sucesso no AD, mas não pertence a grupos administrativos de rede." 
+          });
+        }
+
+        res.json({
+          success: true,
+          user: mappedUser
+        });
+      });
+    });
+  } catch (err: any) {
+    console.error("Erro na autenticação AD:", err);
+    res.status(500).json({ error: "Erro interno no servidor de autenticação LDAP: " + (err.message || err) });
+  }
+});
+
 // 1. Get current AD Connection Status and Config
 app.get("/api/ad/status", async (req, res) => {
   const cfg = readConfig();
@@ -965,7 +1135,7 @@ app.post("/api/ad/users/create", async (req, res) => {
     db.logs.unshift({
       id: "log_" + Date.now(),
       timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
-      operator: "admin.silva",
+      operator: user.operator || "admin.silva",
       action: "Criação de Usuário",
       targetUser: newUser.username,
       details: `Novo usuário ${newUser.name} criado com sucesso via console AD.`,
@@ -1023,7 +1193,7 @@ app.post("/api/ad/users/update", async (req, res) => {
     db.logs.unshift({
       id: "log_" + Date.now(),
       timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
-      operator: "admin.silva",
+      operator: req.body.operator || (updatedUser && updatedUser.operator) || "admin.silva",
       action: "Modificação de Usuário",
       targetUser: updatedUser.username,
       details: `Alterações salvas. Status: ${updatedUser.status}. OU: ${updatedUser.department}`,
@@ -1085,7 +1255,7 @@ app.post("/api/ad/users/reset-password", async (req, res) => {
     db.logs.unshift({
       id: "log_" + Date.now(),
       timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
-      operator: "admin.silva",
+      operator: req.body.operator || "admin.silva",
       action: "Redefinição de Senha",
       targetUser: username,
       details: "Redefinição de senha executada. Exigida alteração no próximo logon do Windows.",

@@ -17,7 +17,8 @@ import {
   ArrowUpRight,
   Clock,
   Shield,
-  FileCode
+  FileCode,
+  LogOut
 } from 'lucide-react';
 
 import { ADUser, AuditLog } from './types';
@@ -33,10 +34,17 @@ import AuditLogs from './components/AuditLogs';
 import AdConfigPanel from './components/AdConfigPanel';
 import GroupPolicies from './components/GroupPolicies';
 import Scripts from './components/Scripts';
+import Login from './components/Login';
 
 export default function App() {
   // Navigation State
   const [activeTab, setActiveTab] = useState<string>('dashboard');
+  
+  // Authenticated Operator State (AD Integrated)
+  const [currentUser, setCurrentUser] = useState<any>(() => {
+    const saved = localStorage.getItem('ad_console_user');
+    return saved ? JSON.parse(saved) : null;
+  });
   
   // Custom dashboard-triggered filters for accounts table
   const [dashboardFilter, setDashboardFilter] = useState<string | null>(null);
@@ -123,7 +131,10 @@ export default function App() {
       await fetch('/api/ad/users/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newUser)
+        body: JSON.stringify({
+          ...newUser,
+          operator: currentUser ? currentUser.username : 'admin.silva'
+        })
       });
       refreshData();
     } catch (err) {
@@ -136,7 +147,11 @@ export default function App() {
       await fetch('/api/ad/users/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: updatedUser.id, updatedUser })
+        body: JSON.stringify({ 
+          id: updatedUser.id, 
+          updatedUser,
+          operator: currentUser ? currentUser.username : 'admin.silva'
+        })
       });
       refreshData();
     } catch (err) {
@@ -158,7 +173,10 @@ export default function App() {
       await fetch('/api/ad/logs/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newLog)
+        body: JSON.stringify({
+          ...newLog,
+          operator: currentUser ? currentUser.username : (newLog.operator || 'admin.silva')
+        })
       });
       refreshData();
     } catch (err) {
@@ -206,6 +224,17 @@ export default function App() {
   }).length;
 
   const blockedUsersCount = users.filter(u => u.status === 'Bloqueada').length;
+
+  if (!currentUser) {
+    return (
+      <Login 
+        onLoginSuccess={(user) => {
+          setCurrentUser(user);
+          localStorage.setItem('ad_console_user', JSON.stringify(user));
+        }} 
+      />
+    );
+  }
 
   return (
     <div className="flex h-screen w-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
@@ -381,14 +410,35 @@ export default function App() {
         </nav>
 
         {/* Footer Admin profile */}
-        <div className="p-6 border-t border-slate-800">
-          <div className="flex items-center gap-3 p-1">
-            <div className="w-10 h-10 bg-slate-700 text-slate-200 rounded-full flex items-center justify-center font-bold text-xs uppercase">
-              AS
+        <div className="p-4 border-t border-slate-800/80 bg-slate-950/20">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-blue-600/20 text-blue-400 border border-blue-500/30 rounded-full flex items-center justify-center font-bold text-xs uppercase shrink-0">
+              {currentUser.name ? (
+                currentUser.name.trim().split(/\s+/).length >= 2 
+                  ? (currentUser.name.trim().split(/\s+/)[0][0] + currentUser.name.trim().split(/\s+/).slice(-1)[0][0]).toUpperCase()
+                  : currentUser.name.substring(0, 2).toUpperCase()
+              ) : 'AD'}
             </div>
-            <div className="truncate">
-              <p className="text-xs text-white font-medium truncate">admin</p>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs text-white font-semibold truncate" title={currentUser.name}>
+                {currentUser.name || currentUser.username}
+              </p>
+              <p className="text-[10px] text-slate-500 truncate" title={currentUser.title || 'Operador de Rede'}>
+                {currentUser.title || 'Operador de Rede'}
+              </p>
             </div>
+            <button 
+              onClick={() => {
+                if (window.confirm('Deseja realmente encerrar a sessão administrativa?')) {
+                  setCurrentUser(null);
+                  localStorage.removeItem('ad_console_user');
+                }
+              }}
+              className="p-1.5 hover:bg-red-500/10 text-slate-400 hover:text-red-400 rounded-lg transition-colors cursor-pointer shrink-0"
+              title="Encerrar Sessão (Log Out)"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
       </aside>
