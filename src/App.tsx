@@ -428,8 +428,21 @@ export default function App() {
               </p>
             </div>
             <button 
-              onClick={() => {
+              onClick={async () => {
                 if (window.confirm('Deseja realmente encerrar a sessão administrativa?')) {
+                  try {
+                    await handleAddAuditLog({
+                      id: "",
+                      timestamp: "",
+                      operator: currentUser?.username || 'admin.silva',
+                      action: "Logoff na Aplicação",
+                      targetUser: currentUser?.username || 'admin.silva',
+                      details: `Usuário ${currentUser?.name || currentUser?.username || 'Administrador'} encerrou a sessão administrativa na aplicação.`,
+                      type: "info"
+                    });
+                  } catch (err) {
+                    console.error('Erro ao registrar logoff:', err);
+                  }
                   setCurrentUser(null);
                   localStorage.removeItem('ad_console_user');
                 }
@@ -557,7 +570,10 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.25 }}
             >
-              <Reports users={users} />
+              <Reports 
+                users={users} 
+                onAddAuditLog={handleAddAuditLog}
+              />
             </motion.div>
           )}
 

@@ -25,9 +25,10 @@ import { ADUser } from '../types';
 
 interface ReportsProps {
   users: ADUser[];
+  onAddAuditLog?: (log: any) => void;
 }
 
-export default function Reports({ users }: ReportsProps) {
+export default function Reports({ users, onAddAuditLog }: ReportsProps) {
   // Query state parameters
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
@@ -160,11 +161,29 @@ export default function Reports({ users }: ReportsProps) {
       totalCount: results.length
     });
     setReportGenerated(true);
+
+    if (onAddAuditLog) {
+      onAddAuditLog({
+        action: "Solicitação de Relatório",
+        targetUser: selectedDept === 'todos' ? "Todos os Setores" : `Setor: ${selectedDept}`,
+        details: `Relatório de auditoria customizado gerado para o período de ${startDate} a ${endDate}. Retornou ${results.length} registros.`,
+        type: "success"
+      });
+    }
   };
 
   // CSV Export utility
   const handleExportCSV = () => {
     if (matchedUsers.length === 0) return;
+
+    if (onAddAuditLog) {
+      onAddAuditLog({
+        action: "Exportação de Relatório",
+        targetUser: "Planilha CSV",
+        details: `Relatório de auditoria (${startDate} a ${endDate}) exportado para formato CSV contendo ${matchedUsers.length} registros.`,
+        type: "info"
+      });
+    }
 
     // Headers with BOM for Excel UTF-8 compatibility
     const headers = ['Nome Completo', 'Logon (sAMAccountName)', 'E-mail', 'Departamento', 'Cargo', 'Status', 'Data Criacao', 'Ultimo Logon', 'Expiracao Conta'];
@@ -198,6 +217,14 @@ export default function Reports({ users }: ReportsProps) {
 
   // Direct trigger of print stylesheet
   const handlePrint = () => {
+    if (onAddAuditLog) {
+      onAddAuditLog({
+        action: "Impressão de Relatório",
+        targetUser: "Impressora / PDF",
+        details: `Solicitada impressão ou geração de PDF do relatório de auditoria (${startDate} a ${endDate}) contendo ${matchedUsers.length} registros.`,
+        type: "info"
+      });
+    }
     window.print();
   };
 

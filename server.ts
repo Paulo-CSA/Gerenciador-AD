@@ -809,6 +809,22 @@ app.post("/api/ad/auth/login", async (req, res) => {
 
         // 1. Direct check based on findUser memberOf results
         if (isUserAdministrative(mappedUser)) {
+          try {
+            const db = readDatabase();
+            db.logs.unshift({
+              id: "log_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
+              timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
+              operator: mappedUser.username,
+              action: "Logon na Aplicação",
+              targetUser: mappedUser.username,
+              details: `Usuário ${mappedUser.name} efetuou logon com sucesso no painel administrativo via grupo APP_GerenciaAD.`,
+              type: "success"
+            });
+            writeDatabase(db);
+          } catch (logErr) {
+            console.error("Erro ao registrar log de login:", logErr);
+          }
+
           return res.json({
             success: true,
             user: mappedUser
@@ -821,6 +837,23 @@ app.post("/api/ad/auth/login", async (req, res) => {
             if (!mappedUser.memberOf.includes("APP_GerenciaAD")) {
               mappedUser.memberOf.push("APP_GerenciaAD");
             }
+
+            try {
+              const db = readDatabase();
+              db.logs.unshift({
+                id: "log_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
+                timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
+                operator: mappedUser.username,
+                action: "Logon na Aplicação",
+                targetUser: mappedUser.username,
+                details: `Usuário ${mappedUser.name} efetuou logon com sucesso no painel administrativo via grupo APP_GerenciaAD.`,
+                type: "success"
+              });
+              writeDatabase(db);
+            } catch (logErr) {
+              console.error("Erro ao registrar log de login:", logErr);
+            }
+
             return res.json({
               success: true,
               user: mappedUser
@@ -1243,20 +1276,14 @@ app.post("/api/ad/users/reset-password", async (req, res) => {
 
 // 7. Get Audit Logs
 app.get("/api/ad/logs", async (req, res) => {
-  const cfg = readConfig();
-  const db = readDatabase();
-  
-  if (cfg.useDemoMode) {
-    return res.json(db.logs);
-  }
-
   try {
-    const realUsers = await getADUsersPromise(cfg);
-    const dynLogs = generateDynamicAuditLogs(realUsers, db.logs);
-    res.json(dynLogs);
+    const db = readDatabase();
+    // Return only the application-executed logs stored in the database, sorted descending by timestamp
+    const sortedLogs = [...db.logs].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+    res.json(sortedLogs);
   } catch (err) {
-    console.error("Erro ao gerar logs dinâmicos de auditoria:", err);
-    res.json(db.logs);
+    console.error("Erro ao obter logs de auditoria da aplicação:", err);
+    res.status(500).json({ error: "Erro ao obter logs de auditoria." });
   }
 });
 
