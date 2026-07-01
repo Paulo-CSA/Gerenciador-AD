@@ -393,20 +393,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* Config AD Item */}
-          <div 
-            onClick={() => setActiveTab('config')}
-            className={`p-3 rounded-md flex items-center justify-between transition-all cursor-pointer ${
-              activeTab === 'config' 
-                ? 'active-nav text-white font-medium' 
-                : 'hover:bg-slate-800 text-slate-300'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <Database className="w-4 h-4 opacity-80" />
-              <span className="text-xs opacity-90 font-sans">Conexão AD Local</span>
-            </div>
-          </div>
+
         </nav>
 
         {/* Footer Admin profile */}
