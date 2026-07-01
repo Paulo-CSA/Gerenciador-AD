@@ -290,9 +290,9 @@ export default function Alerts({
                     {/* Quick mitigation actions */}
                     <div className="flex items-center gap-2 self-end sm:self-auto">
                       <button 
-                        onClick={() => handleDismissAlert(user.id, user.name)}
-                        className="bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold px-2.5 py-1.5 rounded-lg text-[10px] transition-colors cursor-pointer"
-                        title="Ignorar alerta para esta sessão"
+                        disabled
+                        className="bg-slate-100 text-slate-400 font-semibold px-2.5 py-1.5 rounded-lg text-[10px] cursor-not-allowed opacity-50"
+                        title="Ignorar alerta desativado"
                       >
                         Ignorar
                       </button>

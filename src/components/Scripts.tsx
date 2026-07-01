@@ -38,19 +38,11 @@ const SCRIPT_DESCRIPTIONS: { [key: string]: string } = {
   'standard_logon.bat': 'Script geral para sincronização de horário de domínio e mapeamento da pasta pública institucional.'
 };
 
-export default function Scripts({ users, onUpdateUser, onAddAuditLog }: ScriptsProps) {
+export default function Scripts({ users }: ScriptsProps) {
   const [selectedScript, setSelectedScript] = useState<string | null>('standard_logon.bat');
   const [scriptSearch, setScriptSearch] = useState('');
   const [userSearch, setUserSearch] = useState('');
   
-  // Custom script creation
-  const [newScriptName, setNewScriptName] = useState('');
-  const [showAddScript, setShowAddScript] = useState(false);
-
-  // User script editing inline state
-  const [editingUserId, setEditingUserId] = useState<string | null>(null);
-  const [editScriptValue, setEditScriptValue] = useState('');
-
   // Extract statistics and unique scripts
   const {
     scriptsWithCounts,
@@ -115,52 +107,6 @@ export default function Scripts({ users, onUpdateUser, onAddAuditLog }: ScriptsP
     }
     return [];
   }, [selectedScript, users, usersWithoutScript, userSearch]);
-
-  // Handler to assign logon script
-  const handleAssignScript = async (user: ADUser, scriptName: string) => {
-    if (!onUpdateUser) return;
-    
-    const cleanScript = scriptName.trim();
-    const updatedUser = {
-      ...user,
-      logonScript: cleanScript || ""
-    };
-
-    try {
-      await onUpdateUser(updatedUser);
-      
-      if (onAddAuditLog) {
-        onAddAuditLog({
-          id: 'log_script_' + Date.now(),
-          timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-          operator: 'admin',
-          action: 'Alteração de Perfil',
-          targetUser: user.username,
-          details: cleanScript 
-            ? `Script de logon configurado para '${cleanScript}'.` 
-            : `Script de logon removido de perfil do usuário.`,
-          type: cleanScript ? 'success' : 'info'
-        });
-      }
-      setEditingUserId(null);
-    } catch (err) {
-      console.error("Erro ao atualizar script do usuário:", err);
-    }
-  };
-
-  // Add custom script configuration to a user
-  const handleAddNewScript = () => {
-    if (!newScriptName) return;
-    let cleanName = newScriptName.trim();
-    if (!cleanName.endsWith('.bat') && !cleanName.endsWith('.cmd')) {
-      cleanName += '.bat';
-    }
-    
-    // Set this newly entered script name as selected
-    setSelectedScript(cleanName);
-    setNewScriptName('');
-    setShowAddScript(false);
-  };
 
   return (
     <div className="space-y-6">
@@ -236,37 +182,7 @@ export default function Scripts({ users, onUpdateUser, onAddAuditLog }: ScriptsP
                 <h3 className="font-display font-bold text-slate-800 text-sm">Scripts de Inicialização</h3>
                 <p className="text-[11px] text-slate-400">Selecione para ver as contas associadas</p>
               </div>
-              <button 
-                onClick={() => setShowAddScript(!showAddScript)}
-                className="p-1.5 hover:bg-slate-50 text-blue-600 hover:text-blue-700 transition-colors border border-slate-100 rounded-lg flex items-center gap-1 text-[11px] font-bold cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Novo</span>
-              </button>
             </div>
-
-            {/* Quick Add Script Form */}
-            {showAddScript && (
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-2.5">
-                <p className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Registrar Script no SYSVOL</p>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newScriptName}
-                    onChange={(e) => setNewScriptName(e.target.value)}
-                    placeholder="ex: mapear_ti.bat"
-                    className="flex-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                  />
-                  <button
-                    onClick={handleAddNewScript}
-                    className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
-                  >
-                    Criar
-                  </button>
-                </div>
-                <span className="text-[9px] text-slate-400 block">O script será disponibilizado para mapeamento em contas de usuários.</span>
-              </div>
-            )}
 
             {/* Script Search */}
             <div className="relative">
@@ -415,7 +331,7 @@ export default function Scripts({ users, onUpdateUser, onAddAuditLog }: ScriptsP
                     <th className="py-2.5 px-4">Nome completo / Logon</th>
                     <th className="py-2.5 px-4">Departamento</th>
                     <th className="py-2.5 px-4 text-center">Status</th>
-                    <th className="py-2.5 px-4 text-right">Ação / Script</th>
+                    <th className="py-2.5 px-4 text-right">Script de Logon</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -449,55 +365,19 @@ export default function Scripts({ users, onUpdateUser, onAddAuditLog }: ScriptsP
                         </span>
                       </td>
 
-                      {/* Action / script configuration */}
+                      {/* Script configuration */}
                       <td className="py-3 px-4 text-right">
-                        {editingUserId === user.id ? (
-                          <div className="flex items-center justify-end gap-1.5">
-                            <input
-                              type="text"
-                              value={editScriptValue}
-                              onChange={(e) => setEditScriptValue(e.target.value)}
-                              placeholder="ex: script.bat"
-                              className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-[11px] font-mono text-slate-700 focus:ring-1 focus:ring-blue-500 focus:outline-none w-32"
-                            />
-                            <button
-                              onClick={() => handleAssignScript(user, editScriptValue)}
-                              className="p-1 text-emerald-600 hover:bg-emerald-50 rounded transition-colors cursor-pointer"
-                              title="Confirmar alteração"
-                            >
-                              <Check className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => setEditingUserId(null)}
-                              className="p-1 text-red-500 hover:bg-red-50 rounded transition-colors cursor-pointer"
-                              title="Cancelar"
-                            >
-                              <XCircle className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-end gap-2">
-                            {user.logonScript ? (
-                              <span className="font-mono text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200/40">
-                                {user.logonScript}
-                              </span>
-                            ) : (
-                              <span className="text-[10px] text-slate-400 italic">
-                                Sem script
-                              </span>
-                            )}
-                            <button
-                              onClick={() => {
-                                setEditingUserId(user.id);
-                                setEditScriptValue(user.logonScript || '');
-                              }}
-                              className="p-1 text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded transition-colors cursor-pointer"
-                              title="Alterar script de logon"
-                            >
-                              <Edit2 className="w-3 h-3" />
-                            </button>
-                          </div>
-                        )}
+                        <div className="flex items-center justify-end gap-2">
+                          {user.logonScript ? (
+                            <span className="font-mono text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200/40 font-medium">
+                              {user.logonScript}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-400 italic">
+                              Sem script
+                            </span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
