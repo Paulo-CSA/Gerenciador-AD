@@ -816,55 +816,58 @@ app.post("/api/ad/auth/login", async (req, res) => {
       }
 
       adInstance.findUser(username, (err2: any, adUser: any) => {
-        if (err2 || !adUser) {
-          const tempUser = { username, memberOf: ["APP_GerenciaAD"] };
-          if (isUserAdministrative(tempUser)) {
-            return res.json({
-              success: true,
-              user: {
-                id: "ad-real-user",
-                name: username,
-                username: username,
-                department: "Tecnologia da Informação",
-                title: "Administrador de Sistemas",
-                memberOf: ["APP_GerenciaAD"]
+        const memberOfList: string[] = [];
+        let name = username;
+        let department = "Geral";
+        let title = "Colaborador";
+
+        if (adUser) {
+          if (adUser.memberOf) {
+            const rawGroups = Array.isArray(adUser.memberOf) ? adUser.memberOf : [adUser.memberOf];
+            rawGroups.forEach((dn: any) => {
+              if (dn && typeof dn === "string") {
+                const match = dn.match(/^CN=([^,]+)/i);
+                const groupName = match ? match[1] : dn;
+                if (groupName) memberOfList.push(groupName);
               }
             });
           }
-          return res.status(403).json({ 
-            error: "Acesso negado. Autenticado com sucesso, mas não foi possível verificar seu grupo APP_GerenciaAD no AD." 
-          });
-        }
-
-        const memberOfList: string[] = [];
-        if (adUser.memberOf) {
-          const rawGroups = Array.isArray(adUser.memberOf) ? adUser.memberOf : [adUser.memberOf];
-          rawGroups.forEach((dn: any) => {
-            if (dn && typeof dn === "string") {
-              const match = dn.match(/^CN=([^,]+)/i);
-              const groupName = match ? match[1] : dn;
-              if (groupName) memberOfList.push(groupName);
-            }
-          });
+          name = adUser.displayName || adUser.cn || adUser.sAMAccountName || username;
+          department = extractOU(adUser.dn || adUser.distinguishedName || "", adUser.department || "Geral");
+          title = adUser.title || "Colaborador";
         }
 
         const mappedUser = {
-          name: adUser.displayName || adUser.cn || adUser.sAMAccountName || username,
-          username: adUser.sAMAccountName || username,
-          department: extractOU(adUser.dn || adUser.distinguishedName || "", adUser.department || "Geral"),
-          title: adUser.title || "Colaborador",
+          name,
+          username,
+          department,
+          title,
           memberOf: memberOfList
         };
 
-        if (!isUserAdministrative(mappedUser)) {
-          return res.status(403).json({ 
-            error: "Acesso negado. O usuário '" + mappedUser.username + "' foi autenticado com sucesso no AD, mas não pertence ao grupo de segurança 'APP_GerenciaAD' necessário para acessar esta aplicação." 
+        // 1. Direct check based on findUser memberOf results
+        if (isUserAdministrative(mappedUser)) {
+          return res.json({
+            success: true,
+            user: mappedUser
           });
         }
 
-        res.json({
-          success: true,
-          user: mappedUser
+        // 2. Robust fallback check with adInstance.isUserMemberOf
+        adInstance.isUserMemberOf(username, "APP_GerenciaAD", (err3: any, isMember: boolean) => {
+          if (!err3 && isMember) {
+            if (!mappedUser.memberOf.includes("APP_GerenciaAD")) {
+              mappedUser.memberOf.push("APP_GerenciaAD");
+            }
+            return res.json({
+              success: true,
+              user: mappedUser
+            });
+          }
+
+          return res.status(403).json({ 
+            error: "Acesso negado. O usuário '" + mappedUser.username + "' foi autenticado com sucesso no AD, mas não pertence ao grupo de segurança 'APP_GerenciaAD' necessário para acessar esta aplicação." 
+          });
         });
       });
     });
