@@ -23,6 +23,20 @@ import {
 } from 'lucide-react';
 import { ADUser } from '../types';
 
+// Robust date parsing to avoid UTC vs local shift issues in browser environment
+function parseLocalDate(dateStr: string | null | undefined): Date | null {
+  if (!dateStr || dateStr === 'Nunca' || dateStr === 'never') return null;
+  const parts = dateStr.split(' ')[0].split('-');
+  if (parts.length === 3) {
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const day = parseInt(parts[2], 10);
+    return new Date(year, month, day);
+  }
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 interface ReportsProps {
   users: ADUser[];
   onAddAuditLog?: (log: any) => void;
@@ -31,10 +45,13 @@ interface ReportsProps {
 export default function Reports({ users, onAddAuditLog }: ReportsProps) {
   // Query state parameters
   const [startDate, setStartDate] = useState(() => {
+    // Default to 30 days ago so we capture active mock accounts (e.g., June 2026 data on July 1st 2026)
     const d = new Date();
+    d.setDate(d.getDate() - 30);
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
-    return `${year}-${month}-01`;
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   });
   const [endDate, setEndDate] = useState(() => {
     const d = new Date();
@@ -75,11 +92,12 @@ export default function Reports({ users, onAddAuditLog }: ReportsProps) {
       e.preventDefault();
       e.stopPropagation();
     }
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    
-    // Set hours to include the whole day
-    end.setHours(23, 59, 59, 999);
+    const start = parseLocalDate(startDate);
+    const end = parseLocalDate(endDate);
+    if (end) {
+      // Set hours to include the whole day
+      end.setHours(23, 59, 59, 999);
+    }
 
     const results = users.filter(user => {
       // 1. Department filter
@@ -88,19 +106,19 @@ export default function Reports({ users, onAddAuditLog }: ReportsProps) {
       }
 
       // 2. Date checks and status criteria
-      const createdDate = new Date(user.createdDate);
-      const logonDate = new Date(user.lastLogon);
+      const createdDate = parseLocalDate(user.createdDate);
+      const logonDate = parseLocalDate(user.lastLogon);
       
-      const createdInPeriod = createdDate >= start && createdDate <= end;
-      const activeInPeriod = user.status === 'Ativa' && logonDate >= start && logonDate <= end;
+      const createdInPeriod = !!(start && end && createdDate && createdDate >= start && createdDate <= end);
+      const activeInPeriod = !!(user.status === 'Ativa' && logonDate && start && end && logonDate >= start && logonDate <= end);
       const isBlocked = user.status === 'Bloqueada';
       const isExpired = user.status === 'Expirada';
       const isDisabled = user.status === 'Desativada';
 
       // Safe date-check for deactivated/disabled accounts in selected period
-      const disabledInPeriod = isDisabled && (
-        (logonDate >= start && logonDate <= end) || 
-        (createdDate >= start && createdDate <= end)
+      const disabledInPeriod = isDisabled && !!(
+        (logonDate && start && end && logonDate >= start && logonDate <= end) || 
+        (createdDate && start && end && createdDate >= start && createdDate <= end)
       );
 
       // Evaluate matching checked checkboxes
@@ -145,11 +163,14 @@ export default function Reports({ users, onAddAuditLog }: ReportsProps) {
     });
 
     // Compute stats for results
-    const activeCount = results.filter(u => u.status === 'Ativa').length;
+    const activeCount = results.filter(u => {
+      const logonDate = parseLocalDate(u.lastLogon);
+      return u.status === 'Ativa' && logonDate && start && end && logonDate >= start && logonDate <= end;
+    }).length;
     const createdCount = results.filter(u => {
       if (showAllCreated) return true;
-      const cDate = new Date(u.createdDate);
-      return cDate >= start && cDate <= end;
+      const cDate = parseLocalDate(u.createdDate);
+      return !!(start && end && cDate && cDate >= start && cDate <= end);
     }).length;
     const blockedCount = results.filter(u => u.status === 'Bloqueada').length;
     const expiredCount = results.filter(u => u.status === 'Expirada').length;
