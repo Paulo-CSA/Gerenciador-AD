@@ -162,19 +162,28 @@ export default function Reports({ users, onAddAuditLog }: ReportsProps) {
       return matchesStatus;
     });
 
-    // Compute stats for results
-    const activeCount = results.filter(u => {
+    // Base users filtered only by department (the base scope for calculations)
+    const baseScopeUsers = users.filter(user => {
+      if (selectedDept !== 'todos' && user.department !== selectedDept) {
+        return false;
+      }
+      return true;
+    });
+
+    // Compute stats for the selected period from the base scope of users (independent of checked checkboxes)
+    const activeCount = baseScopeUsers.filter(u => {
       const logonDate = parseLocalDate(u.lastLogon);
       return !!(logonDate && start && end && logonDate >= start && logonDate <= end);
     }).length;
-    const createdCount = results.filter(u => {
-      if (showAllCreated) return true;
+
+    const createdCount = baseScopeUsers.filter(u => {
       const cDate = parseLocalDate(u.createdDate);
       return !!(start && end && cDate && cDate >= start && cDate <= end);
     }).length;
-    const blockedCount = results.filter(u => u.status === 'Bloqueada').length;
-    const expiredCount = results.filter(u => u.status === 'Expirada').length;
-    const disabledCount = results.filter(u => u.status === 'Desativada').length;
+
+    const blockedCount = baseScopeUsers.filter(u => u.status === 'Bloqueada').length;
+    const expiredCount = baseScopeUsers.filter(u => u.status === 'Expirada').length;
+    const disabledCount = baseScopeUsers.filter(u => u.status === 'Desativada').length;
 
     setMatchedUsers(results);
     setReportSummary({
