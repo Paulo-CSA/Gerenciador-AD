@@ -398,168 +398,6 @@ const initialUsersRaw = [
     memberOf: ["GG-RH-Staff", "Domain Users"],
     phone: "(11) 96543-2109",
     mustChangePwd: false
-  },
-  {
-    id: "4",
-    name: "Ricardo Augusto Ferreira",
-    username: "ricardo.ferreira",
-    email: "ricardo.ferreira@empresa.com.br",
-    department: "Comercial",
-    ou: "OU=Comercial,OU=Usuarios,DC=empresa,DC=local",
-    title: "Gerente de Contas Key Account",
-    status: "Ativa",
-    createdDate: "2022-08-20",
-    lastLogon: "2026-03-01",
-    pwdLastSet: "2025-12-05",
-    pwdExpired: false,
-    accountExpires: null,
-    memberOf: ["GG-Comercial-Lideres", "GG-CRM-Sales", "Domain Users"],
-    phone: "(11) 95432-1098",
-    mustChangePwd: false
-  },
-  {
-    id: "5",
-    name: "Juliana Mendes Lima",
-    username: "juliana.lima",
-    email: "juliana.lima@empresa.com.br",
-    department: "Marketing",
-    ou: "OU=Marketing,OU=Usuarios,DC=empresa,DC=local",
-    title: "Designer Gráfico Pleno",
-    status: "Expirada",
-    createdDate: "2025-02-15",
-    lastLogon: "2026-05-30",
-    pwdLastSet: "2025-11-15",
-    pwdExpired: true,
-    accountExpires: "2026-06-15",
-    memberOf: ["GG-Marketing-Admin", "Domain Users"],
-    phone: "(11) 94321-0987",
-    mustChangePwd: false
-  },
-  {
-    id: "6",
-    name: "Felipe Albuquerque Melo",
-    username: "felipe.melo",
-    email: "felipe.melo@empresa.com.br",
-    department: "Tecnologia da Informação",
-    ou: "OU=Tecnologia,OU=Usuarios,DC=empresa,DC=local",
-    title: "Estagiário de DevOps",
-    status: "Ativa",
-    createdDate: "2026-06-20",
-    lastLogon: "2026-06-26",
-    pwdLastSet: "2026-06-20",
-    pwdExpired: false,
-    accountExpires: "2026-12-20",
-    memberOf: ["GG-TI-Estagiarios", "Domain Users"],
-    phone: "(11) 93210-9876",
-    mustChangePwd: true
-  },
-  {
-    id: "7",
-    name: "Camila Pires Rocha",
-    username: "camila.rocha",
-    email: "camila.rocha@empresa.com.br",
-    department: "Financeiro",
-    ou: "OU=Financeiro,OU=Usuarios,DC=empresa,DC=local",
-    title: "Analista de Contas a Pagar",
-    status: "Desativada",
-    createdDate: "2023-11-01",
-    lastLogon: "2026-04-12",
-    pwdLastSet: "2025-11-01",
-    pwdExpired: false,
-    accountExpires: null,
-    memberOf: ["GG-Financeiro-Escrita", "Domain Users"],
-    phone: "(11) 92109-8765",
-    mustChangePwd: false
-  },
-  {
-    id: "8",
-    name: "Rodrigo Mendes",
-    username: "rodrigo.mendes",
-    email: "rodrigo.mendes@empresa.com.br",
-    department: "Comercial",
-    ou: "OU=Comercial,OU=Usuarios,DC=empresa,DC=local",
-    title: "Executivo de Vendas",
-    status: "Ativa",
-    createdDate: "2024-05-10",
-    lastLogon: "2026-05-12",
-    pwdLastSet: "2026-05-10",
-    pwdExpired: false,
-    accountExpires: null,
-    memberOf: ["GG-Comercial-Staff", "Domain Users"],
-    phone: "(11) 91111-2222",
-    mustChangePwd: false
-  },
-  {
-    id: "9",
-    name: "Patricia Souza",
-    username: "patricia.souza",
-    email: "patricia.souza@empresa.com.br",
-    department: "Atendimento",
-    ou: "OU=Atendimento,OU=Usuarios,DC=empresa,DC=local",
-    title: "Analista de Relacionamento",
-    status: "Ativa",
-    createdDate: "2025-01-20",
-    lastLogon: "2026-04-17",
-    pwdLastSet: "2026-01-20",
-    pwdExpired: false,
-    accountExpires: null,
-    memberOf: ["Domain Users"],
-    phone: "(11) 92222-3333",
-    mustChangePwd: false
-  },
-  {
-    id: "10",
-    name: "Lucas Oliveira",
-    username: "lucas.oliveira",
-    email: "lucas.oliveira@empresa.com.br",
-    department: "Suporte da TI",
-    ou: "OU=Suporte,OU=Usuarios,DC=empresa,DC=local",
-    title: "Técnico de Suporte",
-    status: "Ativa",
-    createdDate: "2024-11-15",
-    lastLogon: "2026-02-10",
-    pwdLastSet: "2025-11-15",
-    pwdExpired: false,
-    accountExpires: null,
-    memberOf: ["GG-TI-Infra", "Domain Users"],
-    phone: "(11) 93333-4444",
-    mustChangePwd: false
-  },
-  {
-    id: "11",
-    name: "Beatriz Santos",
-    username: "beatriz.santos",
-    email: "beatriz.santos@empresa.com.br",
-    department: "Marketing",
-    ou: "OU=Marketing,OU=Usuarios,DC=empresa,DC=local",
-    title: "Analista de Growth",
-    status: "Ativa",
-    createdDate: "2026-03-01",
-    lastLogon: "2026-05-27",
-    pwdLastSet: "2026-03-01",
-    pwdExpired: false,
-    accountExpires: null,
-    memberOf: ["Domain Users"],
-    phone: "(11) 94444-5555",
-    mustChangePwd: false
-  },
-  {
-    id: "12",
-    name: "Guilherme Silva",
-    username: "guilherme.silva",
-    email: "guilherme.silva@empresa.com.br",
-    department: "Logística",
-    ou: "OU=Logistica,OU=Usuarios,DC=empresa,DC=local",
-    title: "Coordenador de Operações",
-    status: "Ativa",
-    createdDate: "2023-05-15",
-    lastLogon: "2026-01-05",
-    pwdLastSet: "2025-11-20",
-    pwdExpired: false,
-    accountExpires: null,
-    memberOf: ["Domain Users"],
-    phone: "(11) 95555-6666",
-    mustChangePwd: false
   }
 ];
 
@@ -582,7 +420,7 @@ const initialUsers = initialUsersRaw.map((u, index) => {
   };
 });
 
-const initialAuditLogs = [
+/*const initialAuditLogs = [
   {
     id: "l1",
     timestamp: "2026-06-26 09:15:23",
@@ -610,7 +448,7 @@ const initialAuditLogs = [
     details: "Conta desbloqueada após confirmação de identidade do usuário junto à central de atendimento.",
     type: "success"
   }
-];
+];*/
 
 // Ensure local database exists for simulation
 if (!fs.existsSync(DATABASE_PATH)) {
