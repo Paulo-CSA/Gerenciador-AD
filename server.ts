@@ -96,6 +96,21 @@ function writeConfig(cfg: any) {
   }
 }
 
+function getBrazilTimestamp(): string {
+  const d = new Date();
+  // Apply UTC-3 offset (Brazil/Brasilia Standard Time)
+  const brazilDate = new Date(d.getTime() - (3 * 60 * 60 * 1000));
+  
+  const year = brazilDate.getUTCFullYear();
+  const month = String(brazilDate.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(brazilDate.getUTCDate()).padStart(2, "0");
+  const hours = String(brazilDate.getUTCHours()).padStart(2, "0");
+  const minutes = String(brazilDate.getUTCMinutes()).padStart(2, "0");
+  const seconds = String(brazilDate.getUTCSeconds()).padStart(2, "0");
+  
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+}
+
 function parseAdDateTime(value: any): number | null {
   if (value === undefined || value === null) return null;
 
@@ -454,7 +469,7 @@ const initialUsers = initialUsersRaw.map((u, index) => {
 if (!fs.existsSync(DATABASE_PATH)) {
   const defaultDB = {
     users: initialUsers,
-    logs: initialAuditLogs
+    logs: []
   };
   fs.writeFileSync(DATABASE_PATH, JSON.stringify(defaultDB, null, 2), "utf8");
 }
@@ -504,7 +519,7 @@ function readDatabase() {
     return db;
   } catch (error) {
     console.error("Erro ao ler ad_database.json:", error);
-    return { users: initialUsers, logs: initialAuditLogs };
+    return { users: initialUsers, logs: [] };
   }
 }
 
@@ -651,7 +666,7 @@ app.post("/api/ad/auth/login", async (req, res) => {
             const db = readDatabase();
             db.logs.unshift({
               id: "log_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
-              timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
+              timestamp: getBrazilTimestamp(),
               operator: mappedUser.username,
               action: "Logon na Aplicação",
               targetUser: mappedUser.username,
@@ -680,7 +695,7 @@ app.post("/api/ad/auth/login", async (req, res) => {
               const db = readDatabase();
               db.logs.unshift({
                 id: "log_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
-                timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
+                timestamp: getBrazilTimestamp(),
                 operator: mappedUser.username,
                 action: "Logon na Aplicação",
                 targetUser: mappedUser.username,
@@ -927,9 +942,9 @@ app.post("/api/ad/users/create", async (req, res) => {
     const newUser = {
       ...user,
       id: String(db.users.length + 1),
-      createdDate: new Date().toISOString().split("T")[0],
+      createdDate: getBrazilTimestamp().split(" ")[0],
       lastLogon: "Nunca",
-      pwdLastSet: new Date().toISOString().split("T")[0],
+      pwdLastSet: getBrazilTimestamp().split(" ")[0],
       pwdExpired: false,
       memberOf: ["Domain Users"]
     };
@@ -938,7 +953,7 @@ app.post("/api/ad/users/create", async (req, res) => {
     // Add audit log entry
     db.logs.unshift({
       id: "log_" + Date.now(),
-      timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
+      timestamp: getBrazilTimestamp(),
       operator: user.operator || "admin.silva",
       action: "Criação de Usuário",
       targetUser: newUser.username,
@@ -996,7 +1011,7 @@ app.post("/api/ad/users/update", async (req, res) => {
     // Add logging
     db.logs.unshift({
       id: "log_" + Date.now(),
-      timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
+      timestamp: getBrazilTimestamp(),
       operator: req.body.operator || (updatedUser && updatedUser.operator) || "admin.silva",
       action: "Modificação de Usuário",
       targetUser: updatedUser.username,
@@ -1054,11 +1069,11 @@ app.post("/api/ad/users/reset-password", async (req, res) => {
 
   if (cfg.useDemoMode) {
     const db = readDatabase();
-    db.users = db.users.map((u: any) => u.username === username ? { ...u, mustChangePwd: true, pwdExpired: false, pwdLastSet: new Date().toISOString().split("T")[0] } : u);
+    db.users = db.users.map((u: any) => u.username === username ? { ...u, mustChangePwd: true, pwdExpired: false, pwdLastSet: getBrazilTimestamp().split(" ")[0] } : u);
     
     db.logs.unshift({
       id: "log_" + Date.now(),
-      timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
+      timestamp: getBrazilTimestamp(),
       operator: req.body.operator || "admin.silva",
       action: "Redefinição de Senha",
       targetUser: username,
@@ -1139,7 +1154,7 @@ app.post("/api/ad/logs/create", (req, res) => {
   const db = readDatabase();
   const newLog = {
     id: "log_" + Date.now(),
-    timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
+    timestamp: getBrazilTimestamp(),
     operator: log.operator || "admin.silva",
     action: log.action,
     targetUser: log.targetUser,
