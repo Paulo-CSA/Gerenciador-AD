@@ -110,7 +110,7 @@ export default function Reports({ users, onAddAuditLog }: ReportsProps) {
       const logonDate = parseLocalDate(user.lastLogon);
       
       const createdInPeriod = !!(start && end && createdDate && createdDate >= start && createdDate <= end);
-      const activeInPeriod = !!(logonDate && start && end && logonDate >= start && logonDate <= end);
+      const activeInPeriod = user.status === 'Ativa' && !!(logonDate && start && end && logonDate >= start && logonDate <= end);
       const isBlocked = user.status === 'Bloqueada';
       const isExpired = user.status === 'Expirada';
       const isDisabled = user.status === 'Desativada';
@@ -165,7 +165,7 @@ export default function Reports({ users, onAddAuditLog }: ReportsProps) {
     // Compute stats for results
     const activeCount = results.filter(u => {
       const logonDate = parseLocalDate(u.lastLogon);
-      return !!(logonDate && start && end && logonDate >= start && logonDate <= end);
+      return u.status === 'Ativa' && !!(logonDate && start && end && logonDate >= start && logonDate <= end);
     }).length;
     const createdCount = results.filter(u => {
       if (showAllCreated) return true;

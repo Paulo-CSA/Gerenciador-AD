@@ -43,6 +43,19 @@ import {
 } from 'recharts';
 import { ADUser, AuditLog, GPO } from '../types';
 
+function parseLocalDate(dateStr: string | null | undefined): Date | null {
+  if (!dateStr || dateStr === 'Nunca' || dateStr === 'never') return null;
+  const parts = dateStr.split(' ')[0].split('-');
+  if (parts.length === 3) {
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const day = parseInt(parts[2], 10);
+    return new Date(year, month, day);
+  }
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 interface DashboardProps {
   users: ADUser[];
   auditLogs: AuditLog[];
@@ -157,8 +170,8 @@ export default function Dashboard({
 
   const createdInCurrentMonth = users.filter(u => {
     if (!u.createdDate) return false;
-    const createdDate = new Date(u.createdDate);
-    return createdDate >= startOfMonth && createdDate <= endOfToday;
+    const createdDate = parseLocalDate(u.createdDate);
+    return createdDate && createdDate >= startOfMonth && createdDate <= endOfToday;
   });
 
   // 4. Contas Expiradas
@@ -172,8 +185,8 @@ export default function Dashboard({
     if (!lastLogonStr || lastLogonStr === 'Nunca') {
       return 999;
     }
-    const logonDate = new Date(lastLogonStr);
-    if (isNaN(logonDate.getTime())) {
+    const logonDate = parseLocalDate(lastLogonStr);
+    if (!logonDate || isNaN(logonDate.getTime())) {
       return 999;
     }
     const currentDate = new Date();
