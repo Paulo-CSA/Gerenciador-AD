@@ -99,7 +99,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                   AD Real Conectado
                 </span>
                 <p className="text-[10px] text-slate-400 mt-1">
-                  Integrado com o servidor Active Directory em <span className="font-mono">\\casanova</span>. Autenticação real com suas credenciais de rede.
+                  Integrado com o servidor Active Directory.
                 </p>
               </div>
             ) : (
