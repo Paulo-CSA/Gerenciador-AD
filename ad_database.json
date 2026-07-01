@@ -289,6 +289,30 @@
       "passwordNeverExpires": false,
       "userCannotChangePassword": false,
       "logonScript": ""
+    },
+    {
+      "id": "13",
+      "name": "Paulo Andrade",
+      "username": "adm.paulo.andrade",
+      "email": "adm.paulo.andrade@empresa.com.br",
+      "department": "Tecnologia da Informação",
+      "ou": "OU=Administradores,OU=Usuarios,DC=empresa,DC=local",
+      "title": "Administrador de Redes Sênior",
+      "status": "Ativa",
+      "createdDate": "2024-01-10",
+      "lastLogon": "2026-06-30",
+      "pwdLastSet": "2026-06-15",
+      "pwdExpired": false,
+      "accountExpires": null,
+      "memberOf": [
+        "GG-TI-Infra",
+        "Domain Users"
+      ],
+      "phone": "(11) 99999-8888",
+      "mustChangePwd": false,
+      "passwordNeverExpires": true,
+      "userCannotChangePassword": false,
+      "logonScript": "ti_tools.bat"
     }
   ],
   "logs": [
