@@ -21,7 +21,7 @@ export const initialUsers: ADUser[] = [
     pwdLastSet: '2026-05-10',
     pwdExpired: false,
     accountExpires: null,
-    memberOf: ['GG-TI-Infra', 'GG-Acesso-Internet', 'Domain Users'],
+    memberOf: ['GG-TI-Infra', 'GG-Acesso-Internet', 'Usuários do Domínio'],
     phone: '(11) 98765-4321',
     mustChangePwd: false
   },
@@ -39,7 +39,7 @@ export const initialUsers: ADUser[] = [
     pwdLastSet: '2026-01-15',
     pwdExpired: true,
     accountExpires: null,
-    memberOf: ['GG-Financeiro-Leitura', 'GG-ERP-Finance', 'Domain Users'],
+    memberOf: ['GG-Financeiro-Leitura', 'GG-ERP-Finance', 'Usuários do Domínio'],
     phone: '(11) 97654-3210',
     mustChangePwd: false
   },
@@ -57,7 +57,7 @@ export const initialUsers: ADUser[] = [
     pwdLastSet: '2026-06-10',
     pwdExpired: false,
     accountExpires: null,
-    memberOf: ['GG-RH-Staff', 'Domain Users'],
+    memberOf: ['GG-RH-Staff', 'Usuários do Domínio'],
     phone: '(11) 96543-2109',
     mustChangePwd: false
   },
@@ -75,7 +75,7 @@ export const initialUsers: ADUser[] = [
     pwdLastSet: '2025-12-05',
     pwdExpired: false,
     accountExpires: null,
-    memberOf: ['GG-Comercial-Lideres', 'GG-CRM-Sales', 'Domain Users'],
+    memberOf: ['GG-Comercial-Lideres', 'GG-CRM-Sales', 'Usuários do Domínio'],
     phone: '(11) 95432-1098',
     mustChangePwd: false
   },
@@ -93,7 +93,7 @@ export const initialUsers: ADUser[] = [
     pwdLastSet: '2025-11-15',
     pwdExpired: true,
     accountExpires: '2026-06-15', // Expirou no mês vigente
-    memberOf: ['GG-Marketing-Admin', 'Domain Users'],
+    memberOf: ['GG-Marketing-Admin', 'Usuários do Domínio'],
     phone: '(11) 94321-0987',
     mustChangePwd: false
   },
@@ -111,7 +111,7 @@ export const initialUsers: ADUser[] = [
     pwdLastSet: '2026-06-20',
     pwdExpired: false,
     accountExpires: '2026-12-20',
-    memberOf: ['GG-TI-Estagiarios', 'Domain Users'],
+    memberOf: ['GG-TI-Estagiarios', 'Usuários do Domínio'],
     phone: '(11) 93210-9876',
     mustChangePwd: true
   },
@@ -129,7 +129,7 @@ export const initialUsers: ADUser[] = [
     pwdLastSet: '2025-11-01',
     pwdExpired: false,
     accountExpires: null,
-    memberOf: ['GG-Financeiro-Escrita', 'Domain Users'],
+    memberOf: ['GG-Financeiro-Escrita', 'Usuários do Domínio'],
     phone: '(11) 92109-8765',
     mustChangePwd: false
   },
@@ -147,7 +147,7 @@ export const initialUsers: ADUser[] = [
     pwdLastSet: '2025-10-10',
     pwdExpired: true,
     accountExpires: null,
-    memberOf: ['GG-Operacoes-Lideres', 'Domain Users'],
+    memberOf: ['GG-Operacoes-Lideres', 'Usuários do Domínio'],
     phone: '(11) 91098-7654',
     mustChangePwd: false
   },
@@ -165,7 +165,7 @@ export const initialUsers: ADUser[] = [
     pwdLastSet: '2026-01-05',
     pwdExpired: false,
     accountExpires: null,
-    memberOf: ['GG-RH-DP', 'Domain Users'],
+    memberOf: ['GG-RH-DP', 'Usuários do Domínio'],
     phone: '(11) 90987-6543',
     mustChangePwd: false
   },
@@ -183,7 +183,7 @@ export const initialUsers: ADUser[] = [
     pwdLastSet: '2026-03-12',
     pwdExpired: false,
     accountExpires: null,
-    memberOf: ['GG-Juridico-Admin', 'Domain Users'],
+    memberOf: ['GG-Juridico-Admin', 'Usuários do Domínio'],
     phone: '(11) 99876-1234',
     mustChangePwd: false
   },
@@ -201,7 +201,7 @@ export const initialUsers: ADUser[] = [
     pwdLastSet: '2026-06-01',
     pwdExpired: false,
     accountExpires: '2027-06-01',
-    memberOf: ['GG-Comercial-Vendas', 'Domain Users'],
+    memberOf: ['GG-Comercial-Vendas', 'Usuários do Domínio'],
     phone: '(11) 98765-5432',
     mustChangePwd: false
   },
@@ -219,7 +219,7 @@ export const initialUsers: ADUser[] = [
     pwdLastSet: '2026-04-10',
     pwdExpired: false,
     accountExpires: null,
-    memberOf: ['GG-TI-DBA', 'Domain Admins', 'Domain Users'],
+    memberOf: ['GG-TI-DBA', 'Administradores do Domínio', 'Usuários do Domínio'],
     phone: '(11) 97654-4321',
     mustChangePwd: false
   },
@@ -237,7 +237,7 @@ export const initialUsers: ADUser[] = [
     pwdLastSet: '2025-07-20',
     pwdExpired: true,
     accountExpires: '2026-03-31',
-    memberOf: ['GG-Comercial-Lideres', 'Domain Users'],
+    memberOf: ['GG-Comercial-Lideres', 'Usuários do Domínio'],
     phone: '(11) 96543-3210',
     mustChangePwd: false
   },
@@ -255,7 +255,7 @@ export const initialUsers: ADUser[] = [
     pwdLastSet: '2025-05-10',
     pwdExpired: true,
     accountExpires: null,
-    memberOf: ['GG-Marketing-Lideres', 'Domain Users'],
+    memberOf: ['GG-Marketing-Lideres', 'Usuários do Domínio'],
     phone: '(11) 95432-2109',
     mustChangePwd: false
   },
@@ -273,7 +273,7 @@ export const initialUsers: ADUser[] = [
     pwdLastSet: '2026-01-05',
     pwdExpired: false,
     accountExpires: null,
-    memberOf: ['GG-Diretoria', 'GG-Aprovadores-C-Level', 'Domain Users'],
+    memberOf: ['GG-Diretoria', 'GG-Aprovadores-C-Level', 'Usuários do Domínio'],
     phone: '(11) 94321-1098',
     mustChangePwd: false
   }

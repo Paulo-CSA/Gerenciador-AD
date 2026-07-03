@@ -884,8 +884,16 @@ app.get("/api/ad/users", async (req, res) => {
                             lower === "admins do dominio" || 
                             lower === "administradores do domínio" ||
                             lower === "administradores do dominio";
+              const isDomainUserVar = lower === "domain users" || 
+                                      lower === "usuários do domínio" || 
+                                      lower === "usuarios do domínio" || 
+                                      lower === "usuarios do dominio" || 
+                                      lower === "utilizadores do domínio" || 
+                                      lower === "utilizadores do dominio";
               if (isVar) {
                 isDomainAdmin = true;
+              } else if (isDomainUserVar) {
+                // Ignore variations to consolidate into "Usuários do Domínio"
               } else {
                 if (!memberOfList.includes(groupName)) {
                   memberOfList.push(groupName);
@@ -902,14 +910,10 @@ app.get("/api/ad/users", async (req, res) => {
         }
       }
 
-      // Add default domain users groups (AD primary groups aren't usually in memberOf,
-      // and we want to support both English and Portuguese AD environments)
-      const primaryGroups = ["Domain Users", "Utilizadores do Domínio", "Usuários do Domínio"];
-      primaryGroups.forEach(grp => {
-        if (!memberOfList.includes(grp)) {
-          memberOfList.push(grp);
-        }
-      });
+      // Add default domain users group (AD primary groups aren't usually in memberOf)
+      if (!memberOfList.includes("Usuários do Domínio")) {
+        memberOfList.push("Usuários do Domínio");
+      }
 
       // Safe GUID parsing
       let guid = String(index + 1);

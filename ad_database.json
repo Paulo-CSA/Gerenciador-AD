@@ -17,7 +17,7 @@
       "memberOf": [
         "GG-TI-Infra",
         "GG-Acesso-Internet",
-        "Domain Users",
+        "Usuários do Domínio",
         "APP_GerenciaAD"
       ],
       "phone": "(11) 98765-4321",
@@ -43,7 +43,7 @@
       "memberOf": [
         "GG-Financeiro-Leitura",
         "GG-ERP-Finance",
-        "Domain Users"
+        "Usuários do Domínio"
       ],
       "phone": "(11) 97654-3210",
       "mustChangePwd": false,
@@ -67,7 +67,7 @@
       "accountExpires": null,
       "memberOf": [
         "GG-RH-Staff",
-        "Domain Users"
+        "Usuários do Domínio"
       ],
       "phone": "(11) 96543-2109",
       "mustChangePwd": false,
@@ -92,7 +92,7 @@
       "memberOf": [
         "GG-Comercial-Lideres",
         "GG-CRM-Sales",
-        "Domain Users"
+        "Usuários do Domínio"
       ],
       "phone": "(11) 95432-1098",
       "mustChangePwd": false,
@@ -116,7 +116,7 @@
       "accountExpires": "2026-06-15",
       "memberOf": [
         "GG-Marketing-Admin",
-        "Domain Users"
+        "Usuários do Domínio"
       ],
       "phone": "(11) 94321-0987",
       "mustChangePwd": false,
@@ -140,7 +140,7 @@
       "accountExpires": "2026-12-20",
       "memberOf": [
         "GG-TI-Estagiarios",
-        "Domain Users"
+        "Usuários do Domínio"
       ],
       "phone": "(11) 93210-9876",
       "mustChangePwd": true,
@@ -164,7 +164,7 @@
       "accountExpires": null,
       "memberOf": [
         "GG-Financeiro-Escrita",
-        "Domain Users"
+        "Usuários do Domínio"
       ],
       "phone": "(11) 92109-8765",
       "mustChangePwd": false,
@@ -188,7 +188,7 @@
       "accountExpires": null,
       "memberOf": [
         "GG-Comercial-Staff",
-        "Domain Users"
+        "Usuários do Domínio"
       ],
       "phone": "(11) 91111-2222",
       "mustChangePwd": false,
@@ -211,7 +211,7 @@
       "pwdExpired": false,
       "accountExpires": null,
       "memberOf": [
-        "Domain Users"
+        "Usuários do Domínio"
       ],
       "phone": "(11) 92222-3333",
       "mustChangePwd": false,
@@ -235,7 +235,7 @@
       "accountExpires": null,
       "memberOf": [
         "GG-TI-Infra",
-        "Domain Users",
+        "Usuários do Domínio",
         "APP_GerenciaAD"
       ],
       "phone": "(11) 93333-4444",
@@ -259,7 +259,7 @@
       "pwdExpired": false,
       "accountExpires": null,
       "memberOf": [
-        "Domain Users"
+        "Usuários do Domínio"
       ],
       "phone": "(11) 94444-5555",
       "mustChangePwd": false,
@@ -282,7 +282,7 @@
       "pwdExpired": false,
       "accountExpires": null,
       "memberOf": [
-        "Domain Users"
+        "Usuários do Domínio"
       ],
       "phone": "(11) 95555-6666",
       "mustChangePwd": false,
@@ -306,7 +306,7 @@
       "accountExpires": null,
       "memberOf": [
         "GG-TI-Infra",
-        "Domain Users",
+        "Usuários do Domínio",
         "APP_GerenciaAD"
       ],
       "phone": "(11) 99999-8888",
