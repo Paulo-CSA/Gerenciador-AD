@@ -1352,294 +1352,538 @@ app.get("/api/ad/gpos", async (req, res) => {
 
 function getGPOSettings(gpoName: string, gpoType: string): any[] {
   const nameLower = gpoName.toLowerCase();
-  
+
+  // 1. ALTERAR_SENHA_ADM_SEDE
   if (nameLower.includes('alterar_senha_adm_sede') || nameLower.includes('alterar senha adm')) {
     return [
       {
         category: 'Computer',
-        path: 'Configurações do Computador > Configurações do Windows > Scripts (Inicialização/Encerramento) > Inicialização',
+        path: 'Windows Settings > Scripts (Startup/Shutdown) > Startup',
         policy: 'Script de Inicialização',
-        setting: 'ADM_SUPER-ITI_Local.vbs',
-        status: 'Habilitado'
+        setting: 'For this GPO, Script order: Not configured\n\nName: ADM_SUPER-ITI_Local.vbs\nParameters: (None)',
+        status: 'Enabled'
       },
       {
         category: 'Computer',
-        path: 'Configurações do Computador > Configurações do Windows > Configurações de Segurança > Políticas Locais > Atribuição de Direitos de Usuário',
-        policy: 'Fazer logon como serviço',
+        path: 'Windows Settings > Security Settings > Local Policies > User Rights Assignment',
+        policy: 'Log on as a service',
         setting: 'NT SERVICE\\ALL SERVICES',
-        status: 'Habilitado'
+        status: 'Enabled'
+      },
+      {
+        category: 'Computer',
+        path: 'Administrative Templates > System > Scripts',
+        policy: 'Run startup scripts asynchronously',
+        setting: 'Disabled',
+        status: 'Enabled'
       }
     ];
   }
-  
+
+  // 2. Default Domain Policy
   if (nameLower.includes('default domain policy')) {
     return [
       {
         category: 'Computer',
-        path: 'Configurações do Computador > Configurações do Windows > Configurações de Segurança > Políticas de Conta > Política de Senha',
-        policy: 'Exigir histórico de senhas',
-        setting: '24 senhas mantidas',
-        status: 'Habilitado'
+        path: 'Windows Settings > Security Settings > Account Policies > Password Policy',
+        policy: 'Enforce password history',
+        setting: '24 passwords remembered',
+        status: 'Enabled'
       },
       {
         category: 'Computer',
-        path: 'Configurações do Computador > Configurações do Windows > Configurações de Segurança > Políticas de Conta > Política de Senha',
-        policy: 'Idade máxima da senha',
-        setting: '42 dias',
-        status: 'Habilitado'
+        path: 'Windows Settings > Security Settings > Account Policies > Password Policy',
+        policy: 'Maximum password age',
+        setting: '42 days',
+        status: 'Enabled'
       },
       {
         category: 'Computer',
-        path: 'Configurações do Computador > Configurações do Windows > Configurações de Segurança > Políticas de Conta > Política de Senha',
-        policy: 'Idade mínima da senha',
-        setting: '1 dia',
-        status: 'Habilitado'
+        path: 'Windows Settings > Security Settings > Account Policies > Password Policy',
+        policy: 'Minimum password age',
+        setting: '1 day',
+        status: 'Enabled'
       },
       {
         category: 'Computer',
-        path: 'Configurações do Computador > Configurações do Windows > Configurações de Segurança > Políticas de Conta > Política de Senha',
-        policy: 'Comprimento mínimo da senha',
-        setting: '12 caracteres',
-        status: 'Habilitado'
+        path: 'Windows Settings > Security Settings > Account Policies > Password Policy',
+        policy: 'Minimum password length',
+        setting: '12 characters',
+        status: 'Enabled'
       },
       {
         category: 'Computer',
-        path: 'Configurações do Computador > Configurações do Windows > Configurações de Segurança > Políticas de Conta > Política de Senha',
-        policy: 'A senha deve atender a requisitos de complexidade',
-        setting: 'Habilitado',
-        status: 'Habilitado'
+        path: 'Windows Settings > Security Settings > Account Policies > Password Policy',
+        policy: 'Passwords must meet complexity requirements',
+        setting: 'Enabled',
+        status: 'Enabled'
       },
       {
         category: 'Computer',
-        path: 'Configurações do Computador > Configurações do Windows > Configurações de Segurança > Políticas de Conta > Política de Bloqueio de Conta',
-        policy: 'Duração do bloqueio de conta',
-        setting: '30 minutos',
-        status: 'Habilitado'
+        path: 'Windows Settings > Security Settings > Account Policies > Account Lockout Policy',
+        policy: 'Account lockout duration',
+        setting: '30 minutes',
+        status: 'Enabled'
       },
       {
         category: 'Computer',
-        path: 'Configurações do Computador > Configurações do Windows > Configurações de Segurança > Políticas de Conta > Política de Bloqueio de Conta',
-        policy: 'Limiar de bloqueio de conta',
-        setting: '5 tentativas inválidas',
-        status: 'Habilitado'
+        path: 'Windows Settings > Security Settings > Account Policies > Account Lockout Policy',
+        policy: 'Account lockout threshold',
+        setting: '5 invalid logon attempts',
+        status: 'Enabled'
       }
     ];
   }
 
-  if (nameLower.includes('bloqueio') && nameLower.includes('usb')) {
+  // 3. Bloqueio de Dispositivos de Armazenamento USB
+  if (nameLower.includes('bloqueio') && (nameLower.includes('usb') || nameLower.includes('armazenamento'))) {
     return [
       {
         category: 'Computer',
-        path: 'Configurações do Computador > Modelos Administrativos > Sistema > Acesso a Armazenamento Removível',
-        policy: 'Discos Removíveis: Negar acesso de gravação',
-        setting: 'Habilitado',
-        status: 'Habilitado'
+        path: 'Administrative Templates > System > Removable Storage Access',
+        policy: 'Removable Disks: Deny write access',
+        setting: 'Enabled',
+        status: 'Enabled'
       },
       {
         category: 'Computer',
-        path: 'Configurações do Computador > Modelos Administrativos > Sistema > Acesso a Armazenamento Removível',
-        policy: 'Discos Removíveis: Negar acesso de leitura',
-        setting: 'Habilitado',
-        status: 'Habilitado'
+        path: 'Administrative Templates > System > Removable Storage Access',
+        policy: 'Removable Disks: Deny read access',
+        setting: 'Enabled',
+        status: 'Enabled'
       }
     ];
   }
 
-  if (nameLower.includes('wsus')) {
+  // 4. Configuração de Servidor de Atualização WSUS / Windows_Update
+  if (nameLower.includes('wsus') || nameLower.includes('update')) {
     return [
       {
         category: 'Computer',
-        path: 'Configurações do Computador > Modelos Administrativos > Componentes do Windows > Windows Update',
-        policy: 'Configurar Atualizações Automáticas',
-        setting: 'Habilitado (Auto download e agendamento para 03:00)',
-        status: 'Habilitado'
+        path: 'Windows Settings > Scripts (Startup/Shutdown) > Startup',
+        policy: 'Script de Inicialização',
+        setting: 'For this GPO, Script order: Not configured\n\nName: update.bat\nName: update.ps1',
+        status: 'Enabled'
       },
       {
         category: 'Computer',
-        path: 'Configurações do Computador > Modelos Administrativos > Componentes do Windows > Windows Update',
-        policy: 'Especificar local do serviço de atualização da Microsoft na Intranet',
-        setting: 'http://wsus.empresa.local:8530',
-        status: 'Habilitado'
+        path: 'Administrative Templates > Windows Components > Windows PowerShell',
+        policy: 'Turn on Script Execution',
+        setting: 'Enabled\nExecution Policy: Allow local scripts and remote signed scripts',
+        status: 'Enabled'
+      },
+      {
+        category: 'Computer',
+        path: 'Administrative Templates > Windows Components > Windows Update',
+        policy: 'Allow Automatic Updates immediate installation',
+        setting: 'Enabled',
+        status: 'Enabled'
+      },
+      {
+        category: 'Computer',
+        path: 'Administrative Templates > Windows Components > Windows Update',
+        policy: 'Automatic Updates detection frequency',
+        setting: 'Enabled\nCheck for updates at the following interval (hours): 4',
+        status: 'Enabled'
+      },
+      {
+        category: 'Computer',
+        path: 'Administrative Templates > Windows Components > Windows Update',
+        policy: 'Configure Automatic Updates',
+        setting: 'Enabled\nConfigure automatic updating: 4 - Auto download and schedule the install\nThe following settings are only required and applicable if 4 is selected.\nInstall during automatic maintenance: Disabled\nScheduled install day: 0 - Every day\nScheduled install time: 17:00',
+        status: 'Enabled'
       }
     ];
   }
 
-  if ((nameLower.includes('mapeamento') && nameLower.includes('unidade')) || nameLower.includes('mapeamento de unidade')) {
-    const letter = nameLower.includes('pública') ? 'P:' : nameLower.includes('sistemas') ? 'S:' : 'R:';
-    const pathShare = nameLower.includes('pública') ? '\\\\servidor\\publico' : nameLower.includes('sistemas') ? '\\\\servidor\\financeiro' : '\\\\servidor\\rh';
+  // 5. Mapeamento de Unidade S: (Sistemas Financeiros)
+  if (nameLower.includes('mapeamento de unidade s') || (nameLower.includes('mapeamento') && nameLower.includes('s:'))) {
     return [
       {
         category: 'User',
-        path: 'Configurações do Usuário > Preferências > Configurações do Windows > Mapeamento de Unidades',
-        policy: `Mapear unidade ${letter}`,
-        setting: `Ação: Atualizar | Caminho: ${pathShare} | Rotular como: Unidade de Rede`,
-        status: 'Habilitado'
+        path: 'User Preferences > Windows Settings > Drive Maps',
+        policy: 'Map Drive S:',
+        setting: 'Action: Update\nLocation: \\\\servidor\\financeiro\nLabel as: Sistemas Financeiros\nDrive Letter: S:',
+        status: 'Enabled'
       }
     ];
   }
 
+  // 6. Mapeamento de Unidade R: (Recursos Humanos)
+  if (nameLower.includes('mapeamento de unidade r') || (nameLower.includes('mapeamento') && nameLower.includes('r:'))) {
+    return [
+      {
+        category: 'User',
+        path: 'User Preferences > Windows Settings > Drive Maps',
+        policy: 'Map Drive R:',
+        setting: 'Action: Update\nLocation: \\\\servidor\\rh\nLabel as: Recursos Humanos\nDrive Letter: R:',
+        status: 'Enabled'
+      }
+    ];
+  }
+
+  // 7. Mapeamento de Unidade P: (Pasta Pública)
+  if (nameLower.includes('mapeamento de unidade p') || (nameLower.includes('mapeamento') && nameLower.includes('p:')) || nameLower.includes('pública')) {
+    return [
+      {
+        category: 'User',
+        path: 'User Preferences > Windows Settings > Drive Maps',
+        policy: 'Map Drive P:',
+        setting: 'Action: Update\nLocation: \\\\servidor\\publico\nLabel as: Pasta Pública\nDrive Letter: P:',
+        status: 'Enabled'
+      }
+    ];
+  }
+
+  // 8. Papel de Parede Corporativo Obrigatório
+  if (nameLower.includes('papel de parede') || nameLower.includes('wallpaper')) {
+    return [
+      {
+        category: 'User',
+        path: 'Administrative Templates > Desktop > Desktop',
+        policy: 'Desktop Wallpaper',
+        setting: 'Enabled\nWallpaper Name: \\\\servidor\\sysvol\\empresa.local\\policies\\assets\\wallpaper.jpg\nWallpaper Style: Fill',
+        status: 'Enabled'
+      },
+      {
+        category: 'User',
+        path: 'Administrative Templates > Control Panel > Personalization',
+        policy: 'Prevent changing desktop background',
+        setting: 'Enabled',
+        status: 'Enabled'
+      }
+    ];
+  }
+
+  // 9. Bloqueio de Tela Automático por Inatividade (10 min)
+  if (nameLower.includes('bloqueio de tela') && nameLower.includes('inatividade')) {
+    return [
+      {
+        category: 'Computer',
+        path: 'Windows Settings > Security Settings > Local Policies > Security Options',
+        policy: 'Interactive logon: Machine inactivity limit',
+        setting: '600 seconds (10 minutes)',
+        status: 'Enabled'
+      },
+      {
+        category: 'User',
+        path: 'Administrative Templates > Control Panel > Personalization',
+        policy: 'Enable screen saver',
+        setting: 'Enabled',
+        status: 'Enabled'
+      },
+      {
+        category: 'User',
+        path: 'Administrative Templates > Control Panel > Personalization',
+        policy: 'Password protect the screen saver',
+        setting: 'Enabled',
+        status: 'Enabled'
+      },
+      {
+        category: 'User',
+        path: 'Administrative Templates > Control Panel > Personalization',
+        policy: 'Screen saver timeout',
+        setting: '600 seconds',
+        status: 'Enabled'
+      }
+    ];
+  }
+
+  // 10. Habilitação Obrigatória de Auditoria de Logon
+  if (nameLower.includes('auditoria de logon') || nameLower.includes('auditoria')) {
+    return [
+      {
+        category: 'Computer',
+        path: 'Windows Settings > Security Settings > Advanced Audit Policy Configuration > Logon/Logoff',
+        policy: 'Audit Logon',
+        setting: 'Success and Failure',
+        status: 'Enabled'
+      },
+      {
+        category: 'Computer',
+        path: 'Windows Settings > Security Settings > Advanced Audit Policy Configuration > Logon/Logoff',
+        policy: 'Audit Logoff',
+        setting: 'Success',
+        status: 'Enabled'
+      }
+    ];
+  }
+
+  // 11. Configuração do Proxy do Navegador Edge e Chrome
+  if (nameLower.includes('proxy')) {
+    return [
+      {
+        category: 'Computer',
+        path: 'Administrative Templates > Google > Google Chrome > Proxy Server',
+        policy: 'Address and port of proxy server',
+        setting: 'proxy.empresa.local:8080',
+        status: 'Enabled'
+      },
+      {
+        category: 'Computer',
+        path: 'Administrative Templates > Microsoft Edge > Proxy Server',
+        policy: 'Choose how to specify proxy settings',
+        setting: 'Use a fixed proxy server',
+        status: 'Enabled'
+      }
+    ];
+  }
+
+  // 12. Habilitação do BitLocker e Backup de Chaves no AD
+  if (nameLower.includes('bitlocker')) {
+    return [
+      {
+        category: 'Computer',
+        path: 'Administrative Templates > Windows Components > BitLocker Drive Encryption > Operating System Drives',
+        policy: 'Require additional authentication at startup',
+        setting: 'Enabled\nAllow BitLocker without a compatible TPM: Disabled\nConfigure TPM startup: Require TPM',
+        status: 'Enabled'
+      },
+      {
+        category: 'Computer',
+        path: 'Administrative Templates > Windows Components > BitLocker Drive Encryption > Operating System Drives',
+        policy: 'Choose how BitLocker-protected operating system drives can be recovered',
+        setting: 'Enabled\nSave BitLocker recovery information to AD DS: Enabled\nRequire BitLocker backup to AD DS: Enabled',
+        status: 'Enabled'
+      }
+    ];
+  }
+
+  // 13. Instalação do Microsoft Office LTSC Corporativo
+  if (nameLower.includes('office')) {
+    return [
+      {
+        category: 'Computer',
+        path: 'Windows Settings > Software Settings > Software installation',
+        policy: 'Microsoft Office LTSC Professional Plus',
+        setting: 'Path: \\\\servidor\\deploy\\office2021\\office.msi\nDeployment type: Assigned\nDeployment source: Local Area Network',
+        status: 'Enabled'
+      }
+    ];
+  }
+
+  // 14. Script de Logoff - Limpeza de Arquivos Temporários
+  if (nameLower.includes('limpeza') || nameLower.includes('temporários')) {
+    return [
+      {
+        category: 'User',
+        path: 'Windows Settings > Scripts (Logon/Logoff) > Logoff',
+        policy: 'Script de Logoff',
+        setting: 'For this GPO, Script order: Not configured\n\nName: CleanTemp.bat\nParameters: /silent /all',
+        status: 'Enabled'
+      }
+    ];
+  }
+
+  // 15. Habilitação e Bloqueio de Alteração de Tela de Bloqueio
+  if (nameLower.includes('tela de bloqueio') || nameLower.includes('lock screen')) {
+    return [
+      {
+        category: 'Computer',
+        path: 'Administrative Templates > Control Panel > Personalization',
+        policy: 'Force a specific default lock screen and logon image',
+        setting: 'Enabled\nPath to lock screen image: \\\\servidor\\sysvol\\empresa.local\\policies\\assets\\lockscreen.jpg',
+        status: 'Enabled'
+      },
+      {
+        category: 'Computer',
+        path: 'Administrative Templates > Control Panel > Personalization',
+        policy: 'Prevent changing lock screen and logon image',
+        setting: 'Enabled',
+        status: 'Enabled'
+      }
+    ];
+  }
+
+  // 16. Habilitação Padrão e Regras de Entrada Firewall
+  if (nameLower.includes('firewall')) {
+    return [
+      {
+        category: 'Computer',
+        path: 'Windows Settings > Security Settings > Windows Defender Firewall with Advanced Security',
+        policy: 'Domain Profile Firewall State',
+        setting: 'Enabled (On)',
+        status: 'Enabled'
+      },
+      {
+        category: 'Computer',
+        path: 'Windows Settings > Security Settings > Windows Defender Firewall with Advanced Security',
+        policy: 'Inbound Connections',
+        setting: 'Block (Default)',
+        status: 'Enabled'
+      },
+      {
+        category: 'Computer',
+        path: 'Windows Settings > Security Settings > Windows Defender Firewall with Advanced Security > Inbound Rules',
+        policy: 'Allow ICMP Echo Request (Ping)',
+        setting: 'Enabled\nProtocol: ICMPv4\nAction: Allow',
+        status: 'Enabled'
+      }
+    ];
+  }
+
+  // 17. Bloqueio de Contas de Email Pessoais no Windows Mail
+  if (nameLower.includes('email') || nameLower.includes('mail')) {
+    return [
+      {
+        category: 'User',
+        path: 'Administrative Templates > Windows Components > Windows Mail',
+        policy: 'Prevent users from configuring personal email accounts',
+        setting: 'Enabled',
+        status: 'Enabled'
+      }
+    ];
+  }
+
+  // 18. Requisitos de Complexidade de Senha e Histórico
+  if (nameLower.includes('complexidade') || nameLower.includes('requisitos de complexidade')) {
+    return [
+      {
+        category: 'Computer',
+        path: 'Windows Settings > Security Settings > Account Policies > Password Policy',
+        policy: 'Passwords must meet complexity requirements',
+        setting: 'Enabled',
+        status: 'Enabled'
+      },
+      {
+        category: 'Computer',
+        path: 'Windows Settings > Security Settings > Account Policies > Password Policy',
+        policy: 'Enforce password history',
+        setting: '12 passwords remembered',
+        status: 'Enabled'
+      },
+      {
+        category: 'Computer',
+        path: 'Windows Settings > Security Settings > Account Policies > Password Policy',
+        policy: 'Minimum password length',
+        setting: '10 characters',
+        status: 'Enabled'
+      }
+    ];
+  }
+
+  // 19. Instalação Automática do Navegador Google Chrome
+  if (nameLower.includes('chrome')) {
+    return [
+      {
+        category: 'Computer',
+        path: 'Windows Settings > Software Settings > Software installation',
+        policy: 'Google Chrome Enterprise',
+        setting: 'Path: \\\\servidor\\deploy\\chrome\\googlechrome.msi\nDeployment type: Assigned',
+        status: 'Enabled'
+      }
+    ];
+  }
+
+  // 20. Configuração Automática de Redes Wi-Fi Corporativa
+  if (nameLower.includes('wi-fi') || nameLower.includes('wifi') || nameLower.includes('sem fio')) {
+    return [
+      {
+        category: 'Computer',
+        path: 'Windows Settings > Security Settings > Wireless Network (IEEE 802.11) Policies',
+        policy: 'Corporate WiFi Policy',
+        setting: 'SSID: Empresa-Corp\nSecurity: WPA3-Enterprise\nAuthentication: Microsoft: Smart Card or other certificate\nAuto Connect: Enabled',
+        status: 'Enabled'
+      }
+    ];
+  }
+
+  // 21. Desativação de Sincronização de Preferências Windows
+  if (nameLower.includes('sincronização') || nameLower.includes('sync')) {
+    return [
+      {
+        category: 'Computer',
+        path: 'Administrative Templates > Windows Components > Sync your settings',
+        policy: 'Do not sync settings',
+        setting: 'Enabled',
+        status: 'Enabled'
+      }
+    ];
+  }
+
+  // 22. Configurações de Acesso Seguro Remoto (RDP)
+  if (nameLower.includes('rdp') || nameLower.includes('acesso seguro remoto') || nameLower.includes('remoto')) {
+    return [
+      {
+        category: 'Computer',
+        path: 'Administrative Templates > Windows Components > Remote Desktop Services > Remote Desktop Session Host > Connections',
+        policy: 'Allow users to connect remotely by using Remote Desktop Services',
+        setting: 'Enabled',
+        status: 'Enabled'
+      },
+      {
+        category: 'Computer',
+        path: 'Administrative Templates > Windows Components > Remote Desktop Services > Remote Desktop Session Host > Security',
+        policy: 'Require user authentication for remote connections by using Network Level Authentication',
+        setting: 'Enabled',
+        status: 'Enabled'
+      }
+    ];
+  }
+
+  // 23. Habilitação de Proteção contra Ransomware
+  if (nameLower.includes('ransomware') || nameLower.includes('proteção contra ransomware')) {
+    return [
+      {
+        category: 'Computer',
+        path: 'Administrative Templates > Windows Components > Windows Defender Antivirus > Windows Defender Exploit Guard > Controlled Folder Access',
+        policy: 'Configure Controlled folder access',
+        setting: 'Enabled (Block)',
+        status: 'Enabled'
+      }
+    ];
+  }
+
+  // 24. Script de Logon - Sincronização de Horário NTP
+  if (nameLower.includes('ntp') || nameLower.includes('horário') || nameLower.includes('sincronização de horário')) {
+    return [
+      {
+        category: 'User',
+        path: 'Windows Settings > Scripts (Logon/Logoff) > Logon',
+        policy: 'Script de Logon',
+        setting: 'For this GPO, Script order: Not configured\n\nName: TimeSync.ps1\nParameters: -server pool.ntp.br -force',
+        status: 'Enabled'
+      }
+    ];
+  }
+
+  // 25. Bloqueio de Execução de Scripts Não Assinados
+  if (nameLower.includes('execução de scripts') || nameLower.includes('scripts não assinados')) {
+    return [
+      {
+        category: 'Computer',
+        path: 'Administrative Templates > Windows Components > Windows PowerShell',
+        policy: 'Turn on Script Execution',
+        setting: 'Enabled\nExecution Policy: Allow only signed scripts (AllSigned)',
+        status: 'Enabled'
+      }
+    ];
+  }
+
+  // 26. Remoção de Jogos e Recursos Nativos do Windows
+  if (nameLower.includes('jogos') || nameLower.includes('recursos nativos')) {
+    return [
+      {
+        category: 'User',
+        path: 'Administrative Templates > Start Menu and Taskbar',
+        policy: 'Remove Games link from Start Menu',
+        setting: 'Enabled',
+        status: 'Enabled'
+      }
+    ];
+  }
+
+  // Fallback dynamic generator based on GPO Type and Name
   if (gpoType === 'Scripts') {
-    const isLogoff = nameLower.includes('logoff') || nameLower.includes('encerramento') || nameLower.includes('shutdown');
-    const isStartup = nameLower.includes('inicialização') || nameLower.includes('startup') || nameLower.includes('computador') || nameLower.includes('computer');
-    // Default to Logon if not startup or logoff (logon scripts are extremely common)
-    const isLogon = !isStartup && !isLogoff;
-
-    // Detect format/extension: .vbs, .bat, .ps1, .cmd
-    let extension = '.vbs';
-    if (nameLower.includes('.vbs') || nameLower.includes('vbs')) {
-      extension = '.vbs';
-    } else if (nameLower.includes('.bat') || nameLower.includes('bat')) {
-      extension = '.bat';
-    } else if (nameLower.includes('.ps1') || nameLower.includes('ps1') || nameLower.includes('powershell')) {
-      extension = '.ps1';
-    } else if (nameLower.includes('.cmd') || nameLower.includes('cmd')) {
-      extension = '.cmd';
-    } else {
-      // Default based on logon vs startup
-      extension = isStartup ? '.bat' : '.vbs';
-    }
-
-    // Generate clean file name from GPO Name
-    let baseFileName = gpoName
-      .replace(/\.vbs/gi, '')
-      .replace(/\.bat/gi, '')
-      .replace(/\.cmd/gi, '')
-      .replace(/\.ps1/gi, '')
-      .replace(/GPO[-_]/gi, '')
-      .trim();
-
-    if (!baseFileName || baseFileName.toLowerCase() === 'script' || baseFileName.toLowerCase() === 'scripts') {
-      baseFileName = isStartup ? 'StartupScript' : 'LogonScript';
-    }
-
-    const scriptFile = `${baseFileName}${extension}`;
-
-    let path = '';
-    let policy = '';
-    let category: 'Computer' | 'User' = 'User';
-
-    if (isStartup) {
-      category = 'Computer';
-      path = 'Configurações do Computador > Configurações do Windows > Scripts (Inicialização/Encerramento) > Inicialização';
-      policy = 'Script de Inicialização';
-    } else if (isLogoff) {
-      category = 'User';
-      path = 'Configurações do Usuário > Configurações do Windows > Scripts (Logon/Logoff) > Logoff';
-      policy = 'Script de Logoff';
-    } else {
-      category = 'User';
-      path = 'Configurações do Usuário > Configurações do Windows > Scripts (Logon/Logoff) > Logon';
-      policy = 'Script de Logon';
-    }
-
+    const isStartup = nameLower.includes('inicialização') || nameLower.includes('startup');
+    const ext = nameLower.includes('.bat') ? '.bat' : nameLower.includes('.ps1') ? '.ps1' : '.vbs';
     return [
       {
-        category,
-        path,
-        policy,
-        setting: scriptFile,
-        status: 'Habilitado'
-      }
-    ];
-  }
-
-  if (nameLower.includes('antivírus') || nameLower.includes('defender') || nameLower.includes('ransomware')) {
-    return [
-      {
-        category: 'Computer',
-        path: 'Configurações do Computador > Configurações do Windows > Configurações de Segurança > Windows Defender Antivírus',
-        policy: 'Ativar proteção em tempo real',
-        setting: 'Habilitado',
-        status: 'Habilitado'
-      },
-      {
-        category: 'Computer',
-        path: 'Configurações do Computador > Modelos Administrativos > Componentes do Windows > Windows Defender Antivírus > Proteção Exploit',
-        policy: 'Acesso a pastas controladas (Ransomware Protection)',
-        setting: 'Bloquear aplicativos não autorizados de gravar',
-        status: 'Habilitado'
-      }
-    ];
-  }
-
-  if (nameLower.includes('bloqueio') && (nameLower.includes('prompt') || nameLower.includes('cmd'))) {
-    return [
-      {
-        category: 'User',
-        path: 'Configurações do Usuário > Modelos Administrativos > Sistema',
-        policy: 'Impedir acesso ao prompt de comando',
-        setting: 'Habilitado (Também desativa processamento de scripts do CMD)',
-        status: 'Habilitado'
-      },
-      {
-        category: 'User',
-        path: 'Configurações do Usuário > Modelos Administrativos > Sistema',
-        policy: 'Impedir acesso ao console do PowerShell',
-        setting: 'Habilitado',
-        status: 'Habilitado'
-      }
-    ];
-  }
-
-  if (nameLower.includes('tela') && nameLower.includes('inatividade')) {
-    return [
-      {
-        category: 'Computer',
-        path: 'Configurações do Computador > Configurações do Windows > Configurações de Segurança > Políticas Locais > Opções de Segurança',
-        policy: 'Logon interativo: limite de inatividade do computador',
-        setting: '600 segundos (10 minutos)',
-        status: 'Habilitado'
-      },
-      {
-        category: 'User',
-        path: 'Configurações do Usuário > Modelos Administrativos > Painel de Controle > Personalização',
-        policy: 'Protetor de tela habilitado por senha',
-        setting: 'Habilitado',
-        status: 'Habilitado'
-      }
-    ];
-  }
-
-  // Default generic settings based on GPO Type
-  if (gpoType === 'Segurança') {
-    return [
-      {
-        category: 'Computer',
-        path: 'Configurações do Computador > Configurações do Windows > Configurações de Segurança > Políticas Locais > Opções de Segurança',
-        policy: 'Auditoria de privilégios de sistema',
-        setting: 'Sucesso e Falha',
-        status: 'Habilitado'
-      },
-      {
-        category: 'Computer',
-        path: 'Configurações do Computador > Configurações do Windows > Configurações de Segurança > Firewall do Windows Defender',
-        policy: 'Estado do Firewall de Domínio',
-        setting: 'Ativo (Recomendado)',
-        status: 'Habilitado'
-      }
-    ];
-  }
-
-  if (gpoType === 'Modelos Administrativos') {
-    return [
-      {
-        category: 'User',
-        path: 'Configurações do Usuário > Modelos Administrativos > Componentes do Windows',
-        policy: 'Desativar sincronização de preferências do usuário',
-        setting: 'Habilitado',
-        status: 'Habilitado'
-      }
-    ];
-  }
-
-  if (gpoType === 'Software') {
-    return [
-      {
-        category: 'Computer',
-        path: 'Configurações do Computador > Configurações do Software > Instalação de Software',
-        policy: `Instalação de Pacote MSI`,
-        setting: `Pacote: ${gpoName.replace('Instalação Automática de ', '')}.msi | Modo: Atribuído`,
-        status: 'Habilitado'
+        category: isStartup ? 'Computer' : 'User',
+        path: isStartup ? 'Windows Settings > Scripts (Startup/Shutdown) > Startup' : 'Windows Settings > Scripts (Logon/Logoff) > Logon',
+        policy: isStartup ? 'Script de Inicialização' : 'Script de Logon',
+        setting: `For this GPO, Script order: Not configured\n\nName: ${gpoName.replace(/\s+/g, '_')}${ext}\nParameters: (None)`,
+        status: 'Enabled'
       }
     ];
   }
@@ -1647,10 +1891,10 @@ function getGPOSettings(gpoName: string, gpoType: string): any[] {
   return [
     {
       category: 'Computer',
-      path: 'Configurações do Computador > Modelos Administrativos > Sistema',
+      path: 'Administrative Templates > System',
       policy: 'Definição de política de exemplo',
-      setting: 'Configurado de acordo com as normas da empresa',
-      status: 'Habilitado'
+      setting: 'Configurado de acordo com as diretrizes do Active Directory',
+      status: 'Enabled'
     }
   ];
 }
