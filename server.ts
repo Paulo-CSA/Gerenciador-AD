@@ -1873,27 +1873,383 @@ function getGPOSettings(gpoName: string, gpoType: string): any[] {
     ];
   }
 
-  // Fallback dynamic generator based on GPO Type and Name
-  if (gpoType === 'Scripts') {
-    const isStartup = nameLower.includes('inicialização') || nameLower.includes('startup');
-    const ext = nameLower.includes('.bat') ? '.bat' : nameLower.includes('.ps1') ? '.ps1' : '.vbs';
+  // ==========================================
+  // Fallback Dynamic GPO Settings Generator
+  // ==========================================
+
+  // Helper: Dynamic Script GPO Generator
+  if (gpoType === 'Scripts' || nameLower.includes('script') || nameLower.includes('logon') || nameLower.includes('logoff') || nameLower.includes('startup') || nameLower.includes('shutdown') || nameLower.includes('.vbs') || nameLower.includes('.bat') || nameLower.includes('.ps1') || nameLower.includes('.cmd') || nameLower.includes('login') || nameLower.includes('executa')) {
+    const isStartup = nameLower.includes('inicialização') || nameLower.includes('startup') || nameLower.includes('computer') || nameLower.includes('computador') || nameLower.includes('máquina') || nameLower.includes('machine');
+    const isShutdown = nameLower.includes('shutdown') || nameLower.includes('encerramento') || nameLower.includes('encerra');
+    const isLogoff = nameLower.includes('logoff');
+
+    const fileRegex = /[\w-]+\.(bat|vbs|ps1|cmd)/gi;
+    const foundFiles: string[] = [];
+    let match;
+    while ((match = fileRegex.exec(gpoName)) !== null) {
+      foundFiles.push(match[0]);
+    }
+
+    if (foundFiles.length === 0) {
+      const slug = gpoName
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-zA-Z0-9-_]/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_+|_+$/g, '');
+      
+      if (nameLower.includes('vbs')) {
+        foundFiles.push(`${slug}.vbs`);
+      } else if (nameLower.includes('bat')) {
+        foundFiles.push(`${slug}.bat`);
+      } else if (nameLower.includes('ps1') || nameLower.includes('powershell')) {
+        foundFiles.push(`${slug}.ps1`);
+      } else if (nameLower.includes('cmd')) {
+        foundFiles.push(`${slug}.cmd`);
+      } else {
+        // Return both bat and vbs so that user gets real-world script mapping
+        foundFiles.push(`${slug}.bat`);
+        foundFiles.push(`${slug}.vbs`);
+      }
+    }
+
+    const scriptOrder = "Not configured";
+    const settingText = `For this GPO, Script order: ${scriptOrder}\n\n` + foundFiles.map(f => `Name: ${f}\nParameters: (None)`).join('\n\n');
+
+    const path = isStartup 
+      ? 'Windows Settings > Scripts (Startup/Shutdown) > Startup'
+      : isShutdown
+        ? 'Windows Settings > Scripts (Startup/Shutdown) > Shutdown'
+        : isLogoff
+          ? 'Windows Settings > Scripts (Logon/Logoff) > Logoff'
+          : 'Windows Settings > Scripts (Logon/Logoff) > Logon';
+
+    const policy = isStartup 
+      ? 'Script de Inicialização' 
+      : isShutdown 
+        ? 'Script de Encerramento' 
+        : isLogoff 
+          ? 'Script de Logoff' 
+          : 'Script de Logon';
+
+    const category = (isStartup || isShutdown) ? 'Computer' : 'User';
+
+    const results = [
+      {
+        category,
+        path,
+        policy,
+        setting: settingText,
+        status: 'Enabled'
+      }
+    ];
+
+    if (nameLower.includes('ps1') || nameLower.includes('powershell')) {
+      results.push({
+        category: 'Computer',
+        path: 'Administrative Templates > Windows Components > Windows PowerShell',
+        policy: 'Turn on Script Execution',
+        setting: 'Enabled\nExecution Policy: Allow local scripts and remote signed scripts',
+        status: 'Enabled'
+      });
+    }
+
+    return results;
+  }
+
+  // Helper: Dynamic Preferences GPO Generator
+  if (gpoType === 'Preferências' || nameLower.includes('preference') || nameLower.includes('mapeamento') || nameLower.includes('drive') || nameLower.includes('printer') || nameLower.includes('impressora') || nameLower.includes('compartilhamento')) {
+    const results: any[] = [];
+    let letter = 'S:';
+    const letterMatch = gpoName.match(/([a-zA-Z]):/);
+    if (letterMatch) {
+      letter = letterMatch[1].toUpperCase() + ':';
+    } else {
+      if (nameLower.includes('pública') || nameLower.includes('publico')) letter = 'P:';
+      else if (nameLower.includes('financeiro') || nameLower.includes('finanças')) letter = 'F:';
+      else if (nameLower.includes('vendas') || nameLower.includes('comercial')) letter = 'V:';
+      else if (nameLower.includes('sistemas') || nameLower.includes('sistema')) letter = 'S:';
+      else if (nameLower.includes('rh') || nameLower.includes('recursos humanos')) letter = 'R:';
+    }
+
+    const slug = gpoName
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .toLowerCase();
+
+    const sharePath = `\\\\servidor\\${slug || 'compartilhamento'}`;
+
+    if (nameLower.includes('impressora') || nameLower.includes('printer')) {
+      results.push({
+        category: 'User',
+        path: 'User Preferences > Control Panel Settings > Printers',
+        policy: 'Shared Printer Connection',
+        setting: `Action: Create\nShare Path: \\\\servidor\\${slug || 'HP_LaserJet'}\nSet as default: Enabled`,
+        status: 'Enabled'
+      });
+    } else {
+      results.push({
+        category: 'User',
+        path: 'User Preferences > Windows Settings > Drive Maps',
+        policy: `Map Drive ${letter}`,
+        setting: `Action: Update\nLocation: ${sharePath}\nLabel as: ${gpoName}\nDrive Letter: ${letter}`,
+        status: 'Enabled'
+      });
+    }
+
+    // Also include a Logon script block since many preference GPOs map drives/printers via script files
+    const scriptSlug = gpoName
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9-_]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '');
+
+    results.push({
+      category: 'User',
+      path: 'Windows Settings > Scripts (Logon/Logoff) > Logon',
+      policy: 'Script de Logon',
+      setting: `For this GPO, Script order: Not configured\n\nName: ${scriptSlug}.bat\nName: ${scriptSlug}.vbs`,
+      status: 'Enabled'
+    });
+
+    return results;
+  }
+
+  // Helper: Dynamic Administrative Templates GPO Generator
+  if (gpoType === 'Modelos Administrativos' || nameLower.includes('adm') || nameLower.includes('template') || nameLower.includes('chrome') || nameLower.includes('edge') || nameLower.includes('firefox') || nameLower.includes('browser') || nameLower.includes('papel de parede') || nameLower.includes('wallpaper') || nameLower.includes('tela') || nameLower.includes('lock screen')) {
+    const results: any[] = [];
+
+    if (nameLower.includes('chrome') || nameLower.includes('edge') || nameLower.includes('navegador') || nameLower.includes('browser')) {
+      results.push(
+        {
+          category: 'Computer',
+          path: 'Administrative Templates > Google > Google Chrome > Proxy Server',
+          policy: 'Address and port of proxy server',
+          setting: 'proxy.empresa.local:8080',
+          status: 'Enabled'
+        },
+        {
+          category: 'Computer',
+          path: 'Administrative Templates > Microsoft Edge > Proxy Server',
+          policy: 'Choose how to specify proxy settings',
+          setting: 'Use a fixed proxy server',
+          status: 'Enabled'
+        }
+      );
+    } else if (nameLower.includes('papel de parede') || nameLower.includes('wallpaper') || nameLower.includes('tela') || nameLower.includes('lock screen')) {
+      results.push(
+        {
+          category: 'User',
+          path: 'Administrative Templates > Desktop > Desktop',
+          policy: 'Desktop Wallpaper',
+          setting: 'Enabled\nWallpaper Name: \\\\servidor\\sysvol\\empresa.local\\policies\\assets\\wallpaper.jpg\nWallpaper Style: Fill',
+          status: 'Enabled'
+        },
+        {
+          category: 'User',
+          path: 'Administrative Templates > Control Panel > Personalization',
+          policy: 'Prevent changing desktop background',
+          setting: 'Enabled',
+          status: 'Enabled'
+        }
+      );
+    } else if (nameLower.includes('sincronização') || nameLower.includes('sync')) {
+      results.push({
+        category: 'Computer',
+        path: 'Administrative Templates > Windows Components > Sync your settings',
+        policy: 'Do not sync settings',
+        setting: 'Enabled',
+        status: 'Enabled'
+      });
+    } else if (nameLower.includes('rdp') || nameLower.includes('remoto')) {
+      results.push(
+        {
+          category: 'Computer',
+          path: 'Administrative Templates > Windows Components > Remote Desktop Services > Remote Desktop Session Host > Connections',
+          policy: 'Allow users to connect remotely by using Remote Desktop Services',
+          setting: 'Enabled',
+          status: 'Enabled'
+        },
+        {
+          category: 'Computer',
+          path: 'Administrative Templates > Windows Components > Remote Desktop Services > Remote Desktop Session Host > Security',
+          policy: 'Require user authentication for remote connections by using Network Level Authentication',
+          setting: 'Enabled',
+          status: 'Enabled'
+        }
+      );
+    } else {
+      results.push(
+        {
+          category: 'Computer',
+          path: 'Administrative Templates > System > Group Policy',
+          policy: 'Configure Group Policy caching',
+          setting: 'Enabled',
+          status: 'Enabled'
+        },
+        {
+          category: 'User',
+          path: 'Administrative Templates > Start Menu and Taskbar',
+          policy: 'Remove Games link from Start Menu',
+          setting: 'Enabled',
+          status: 'Enabled'
+        }
+      );
+    }
+
+    return results;
+  }
+
+  // Helper: Dynamic Software GPO Generator
+  if (gpoType === 'Software' || nameLower.includes('software') || nameLower.includes('install') || nameLower.includes('deploy')) {
+    let software = 'Software Enterprise';
+    if (nameLower.includes('chrome')) software = 'Google Chrome Enterprise';
+    else if (nameLower.includes('office')) software = 'Microsoft Office LTSC Professional Plus';
+    else if (nameLower.includes('adobe') || nameLower.includes('pdf')) software = 'Adobe Acrobat Reader DC';
+    else if (nameLower.includes('7zip') || nameLower.includes('zip')) software = '7-Zip File Manager';
+    else {
+      software = gpoName.replace(/gpo/gi, '').replace(/instalação/gi, '').replace(/automática/gi, '').replace(/de/gi, '').trim() + ' Enterprise';
+    }
+
+    const slug = software.toLowerCase().replace(/[^a-z0-9]/g, '');
+
     return [
       {
-        category: isStartup ? 'Computer' : 'User',
-        path: isStartup ? 'Windows Settings > Scripts (Startup/Shutdown) > Startup' : 'Windows Settings > Scripts (Logon/Logoff) > Logon',
-        policy: isStartup ? 'Script de Inicialização' : 'Script de Logon',
-        setting: `For this GPO, Script order: Not configured\n\nName: ${gpoName.replace(/\s+/g, '_')}${ext}\nParameters: (None)`,
+        category: 'Computer',
+        path: 'Windows Settings > Software Settings > Software installation',
+        policy: software,
+        setting: `Path: \\\\servidor\\deploy\\${slug}\\${slug}.msi\nDeployment type: Assigned\nDeployment source: Local Area Network`,
         status: 'Enabled'
       }
     ];
   }
 
+  // Helper: Dynamic Security GPO Generator
+  if (gpoType === 'Segurança' || nameLower.includes('segurança') || nameLower.includes('security') || nameLower.includes('firewall') || nameLower.includes('senha') || nameLower.includes('bloqueio') || nameLower.includes('auditoria') || nameLower.includes('bitlocker') || nameLower.includes('ransomware')) {
+    const results: any[] = [];
+
+    if (nameLower.includes('senha') || nameLower.includes('password') || nameLower.includes('complexidade') || nameLower.includes('bloqueio')) {
+      results.push(
+        {
+          category: 'Computer',
+          path: 'Windows Settings > Security Settings > Account Policies > Password Policy',
+          policy: 'Enforce password history',
+          setting: '24 passwords remembered',
+          status: 'Enabled'
+        },
+        {
+          category: 'Computer',
+          path: 'Windows Settings > Security Settings > Account Policies > Password Policy',
+          policy: 'Maximum password age',
+          setting: '42 days',
+          status: 'Enabled'
+        },
+        {
+          category: 'Computer',
+          path: 'Windows Settings > Security Settings > Account Policies > Password Policy',
+          policy: 'Minimum password length',
+          setting: '12 characters',
+          status: 'Enabled'
+        },
+        {
+          category: 'Computer',
+          path: 'Windows Settings > Security Settings > Account Policies > Password Policy',
+          policy: 'Passwords must meet complexity requirements',
+          setting: 'Enabled',
+          status: 'Enabled'
+        },
+        {
+          category: 'Computer',
+          path: 'Windows Settings > Security Settings > Account Policies > Account Lockout Policy',
+          policy: 'Account lockout threshold',
+          setting: '5 invalid logon attempts',
+          status: 'Enabled'
+        }
+      );
+    } else if (nameLower.includes('usb') || nameLower.includes('removível') || nameLower.includes('storage') || nameLower.includes('bloqueio')) {
+      results.push(
+        {
+          category: 'Computer',
+          path: 'Administrative Templates > System > Removable Storage Access',
+          policy: 'Removable Disks: Deny write access',
+          setting: 'Enabled',
+          status: 'Enabled'
+        },
+        {
+          category: 'Computer',
+          path: 'Administrative Templates > System > Removable Storage Access',
+          policy: 'Removable Disks: Deny read access',
+          setting: 'Enabled',
+          status: 'Enabled'
+        }
+      );
+    } else if (nameLower.includes('firewall')) {
+      results.push(
+        {
+          category: 'Computer',
+          path: 'Windows Settings > Security Settings > Windows Defender Firewall with Advanced Security',
+          policy: 'Domain Profile Firewall State',
+          setting: 'Enabled (On)',
+          status: 'Enabled'
+        },
+        {
+          category: 'Computer',
+          path: 'Windows Settings > Security Settings > Windows Defender Firewall with Advanced Security > Inbound Rules',
+          policy: 'Allow ICMP Echo Request (Ping)',
+          setting: 'Enabled\nProtocol: ICMPv4\nAction: Allow',
+          status: 'Enabled'
+        }
+      );
+    } else if (nameLower.includes('auditoria') || nameLower.includes('audit')) {
+      results.push(
+        {
+          category: 'Computer',
+          path: 'Windows Settings > Security Settings > Advanced Audit Policy Configuration > Logon/Logoff',
+          policy: 'Audit Logon',
+          setting: 'Success and Failure',
+          status: 'Enabled'
+        },
+        {
+          category: 'Computer',
+          path: 'Windows Settings > Security Settings > Advanced Audit Policy Configuration > Logon/Logoff',
+          policy: 'Audit Logoff',
+          setting: 'Success',
+          status: 'Enabled'
+        }
+      );
+    } else {
+      results.push(
+        {
+          category: 'Computer',
+          path: 'Windows Settings > Security Settings > Local Policies > Security Options',
+          policy: 'Interactive logon: Machine inactivity limit',
+          setting: '600 seconds (10 minutes)',
+          status: 'Enabled'
+        },
+        {
+          category: 'Computer',
+          path: 'Windows Settings > Security Settings > Local Policies > User Rights Assignment',
+          policy: 'Allow log on through Remote Desktop Services',
+          setting: 'Administrators, Remote Desktop Users',
+          status: 'Enabled'
+        }
+      );
+    }
+
+    return results;
+  }
+
+  // Absolute fallback:
+  const isStartup = nameLower.includes('inicialização') || nameLower.includes('startup');
+  const ext = nameLower.includes('.bat') ? '.bat' : nameLower.includes('.ps1') ? '.ps1' : '.vbs';
   return [
     {
-      category: 'Computer',
-      path: 'Administrative Templates > System',
-      policy: 'Definição de política de exemplo',
-      setting: 'Configurado de acordo com as diretrizes do Active Directory',
+      category: isStartup ? 'Computer' : 'User',
+      path: isStartup ? 'Windows Settings > Scripts (Startup/Shutdown) > Startup' : 'Windows Settings > Scripts (Logon/Logoff) > Logon',
+      policy: isStartup ? 'Script de Inicialização' : 'Script de Logon',
+      setting: `For this GPO, Script order: Not configured\n\nName: ${gpoName.replace(/\s+/g, '_')}${ext}\nParameters: (None)`,
       status: 'Enabled'
     }
   ];
