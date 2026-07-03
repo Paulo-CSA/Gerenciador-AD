@@ -831,7 +831,7 @@ app.get("/api/ad/users", async (req, res) => {
     'dn', 'distinguishedName', 'cn', 'displayName', 'sAMAccountName', 
     'mail', 'department', 'title', 'userAccountControl', 'whenCreated', 
     'lastLogon', 'lastLogonTimestamp', 'pwdLastSet', 'accountExpires', 
-    'memberOf', 'telephoneNumber', 'objectGUID', 'lockoutTime', 'scriptPath'
+    'memberOf', 'telephoneNumber', 'objectGUID', 'lockoutTime', 'scriptPath', 'primaryGroupID'
   ];
 
   adInstance.findUsers({ 
@@ -877,6 +877,26 @@ app.get("/api/ad/users", async (req, res) => {
             if (groupName && !memberOfList.includes(groupName)) {
               memberOfList.push(groupName);
             }
+          }
+        });
+      }
+
+      // Check if user belongs to any variation of Domain Admins or has primaryGroupID === 512
+      const isDomainAdmin = memberOfList.some(grp => {
+        const lower = grp.toLowerCase();
+        return lower === "domain admins" || 
+               lower === "admins. do domínio" || 
+               lower === "admins do domínio" || 
+               lower === "admins do dominio" || 
+               lower === "administradores do domínio" ||
+               lower === "administradores do dominio";
+      }) || (user.primaryGroupID && String(user.primaryGroupID) === "512");
+
+      if (isDomainAdmin) {
+        const adminGroups = ["Domain Admins", "Admins. do Domínio", "Admins do Domínio", "Administradores do Domínio"];
+        adminGroups.forEach(grp => {
+          if (!memberOfList.includes(grp)) {
+            memberOfList.push(grp);
           }
         });
       }
