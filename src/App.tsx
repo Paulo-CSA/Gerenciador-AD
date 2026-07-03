@@ -42,7 +42,7 @@ export default function App() {
   
   // Authenticated Operator State (AD Integrated)
   const [currentUser, setCurrentUser] = useState<any>(() => {
-    const saved = localStorage.getItem('ad_console_user');
+    const saved = sessionStorage.getItem('ad_console_user');
     return saved ? JSON.parse(saved) : null;
   });
   
@@ -230,7 +230,7 @@ export default function App() {
       <Login 
         onLoginSuccess={(user) => {
           setCurrentUser(user);
-          localStorage.setItem('ad_console_user', JSON.stringify(user));
+          sessionStorage.setItem('ad_console_user', JSON.stringify(user));
         }} 
       />
     );
@@ -431,7 +431,7 @@ export default function App() {
                     console.error('Erro ao registrar logoff:', err);
                   }
                   setCurrentUser(null);
-                  localStorage.removeItem('ad_console_user');
+                  sessionStorage.removeItem('ad_console_user');
                 }
               }}
               className="p-1.5 hover:bg-red-500/10 text-slate-400 hover:text-red-400 rounded-lg transition-colors cursor-pointer shrink-0"
