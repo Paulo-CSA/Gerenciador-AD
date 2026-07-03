@@ -35,14 +35,6 @@ export interface AuditLog {
   type: 'success' | 'warning' | 'danger' | 'info';
 }
 
-export interface GPOPolicySetting {
-  category: 'Computer' | 'User';
-  path: string;
-  policy: string;
-  setting: string;
-  status?: string;
-}
-
 export interface GPO {
   id: string;
   name: string;
@@ -53,7 +45,6 @@ export interface GPO {
   description: string;
   modifiedDate: string;
   author: string;
-  settings?: GPOPolicySetting[];
 }
 
 export interface InactivitySetting {
