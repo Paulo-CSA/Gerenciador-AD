@@ -163,15 +163,14 @@ export default function Dashboard({
   const disabledInCurrentMonth = users.filter(u => u.status === 'Desativada');
   const blockedUsers = users.filter(u => u.status === 'Bloqueada');
 
-  // 3. Contas Criadas no Mês Vigente (Dinâmico: do dia 1 até o dia atual)
+  // 3. Contas Criadas no Mês Vigente (Dinâmico: do primeiro dia do mês até o último)
   const today = new Date();
-  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-  const endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
-
   const createdInCurrentMonth = users.filter(u => {
     if (!u.createdDate) return false;
     const createdDate = parseLocalDate(u.createdDate);
-    return createdDate && createdDate >= startOfMonth && createdDate <= endOfToday;
+    return createdDate && 
+      createdDate.getFullYear() === today.getFullYear() && 
+      createdDate.getMonth() === today.getMonth();
   });
 
   // 4. Contas Expiradas

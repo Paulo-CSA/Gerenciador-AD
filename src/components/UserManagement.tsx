@@ -29,6 +29,19 @@ import {
 } from 'lucide-react';
 import { ADUser, AuditLog } from '../types';
 
+function parseLocalDate(dateStr: string | null | undefined): Date | null {
+  if (!dateStr || dateStr === 'Nunca' || dateStr === 'never') return null;
+  const parts = dateStr.split(' ')[0].split('-');
+  if (parts.length === 3) {
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const day = parseInt(parts[2], 10);
+    return new Date(year, month, day);
+  }
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 interface UserManagementProps {
   users: ADUser[];
   onAddUser: (user: ADUser) => void;
@@ -149,10 +162,10 @@ export default function UserManagement({
         matchesDashboard = user.status === 'Ativa';
       } else if (dashboardFilter === 'CriadasMes') {
         const today = new Date();
-        const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-        const endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
-        const createdDate = new Date(user.createdDate);
-        matchesDashboard = createdDate >= startOfMonth && createdDate <= endOfToday;
+        const createdDate = parseLocalDate(user.createdDate);
+        matchesDashboard = createdDate !== null &&
+          createdDate.getFullYear() === today.getFullYear() &&
+          createdDate.getMonth() === today.getMonth();
       } else if (dashboardFilter === 'Bloqueada') {
         matchesDashboard = user.status === 'Bloqueada';
       } else if (dashboardFilter === 'DesativadasMes') {
