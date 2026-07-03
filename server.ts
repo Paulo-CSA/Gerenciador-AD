@@ -868,37 +868,38 @@ app.get("/api/ad/users", async (req, res) => {
 
       // Parse groups robustly (handles arrays, single string values, and ensures primary groups)
       const memberOfList: string[] = [];
+      let isDomainAdmin = (user.primaryGroupID && String(user.primaryGroupID) === "512");
+
       if (user.memberOf) {
         const rawGroups = Array.isArray(user.memberOf) ? user.memberOf : [user.memberOf];
         rawGroups.forEach((dn: any) => {
           if (dn && typeof dn === "string") {
             const match = dn.match(/^CN=([^,]+)/i);
             const groupName = match ? match[1] : dn;
-            if (groupName && !memberOfList.includes(groupName)) {
-              memberOfList.push(groupName);
+            if (groupName) {
+              const lower = groupName.toLowerCase();
+              const isVar = lower === "domain admins" || 
+                            lower === "admins. do domínio" || 
+                            lower === "admins do domínio" || 
+                            lower === "admins do dominio" || 
+                            lower === "administradores do domínio" ||
+                            lower === "administradores do dominio";
+              if (isVar) {
+                isDomainAdmin = true;
+              } else {
+                if (!memberOfList.includes(groupName)) {
+                  memberOfList.push(groupName);
+                }
+              }
             }
           }
         });
       }
 
-      // Check if user belongs to any variation of Domain Admins or has primaryGroupID === 512
-      const isDomainAdmin = memberOfList.some(grp => {
-        const lower = grp.toLowerCase();
-        return lower === "domain admins" || 
-               lower === "admins. do domínio" || 
-               lower === "admins do domínio" || 
-               lower === "admins do dominio" || 
-               lower === "administradores do domínio" ||
-               lower === "administradores do dominio";
-      }) || (user.primaryGroupID && String(user.primaryGroupID) === "512");
-
       if (isDomainAdmin) {
-        const adminGroups = ["Domain Admins", "Admins. do Domínio", "Admins do Domínio", "Administradores do Domínio"];
-        adminGroups.forEach(grp => {
-          if (!memberOfList.includes(grp)) {
-            memberOfList.push(grp);
-          }
-        });
+        if (!memberOfList.includes("Administradores do Domínio")) {
+          memberOfList.push("Administradores do Domínio");
+        }
       }
 
       // Add default domain users groups (AD primary groups aren't usually in memberOf,
