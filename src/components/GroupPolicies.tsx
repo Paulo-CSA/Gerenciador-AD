@@ -25,7 +25,11 @@ import {
   Loader2,
   RefreshCw,
   Eye,
-  Lock
+  Lock,
+  Upload,
+  Trash2,
+  FileCode,
+  Check
 } from 'lucide-react';
 import { GPO } from '../types';
 import { 
@@ -53,6 +57,402 @@ export default function GroupPolicies() {
   const [filterUsage, setFilterUsage] = useState<'all' | 'in-use' | 'not-in-use'>('all');
   const [selectedGpoId, setSelectedGpoId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'settings'>('overview');
+
+  // XML Import States
+  const [showImportArea, setShowImportArea] = useState(false);
+  const [importingFile, setImportingFile] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [parsedPreviewGpos, setParsedPreviewGpos] = useState<any[]>([]);
+  const [importSuccessMsg, setImportSuccessMsg] = useState<string | null>(null);
+
+  // Parse GPMC GPO Report XML
+  const parseGPMCReportXml = (xmlText: string) => {
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+    
+    // Check for parsing errors
+    const parseError = xmlDoc.querySelector('parsererror');
+    if (parseError) {
+      throw new Error('O arquivo XML carregado é inválido ou contém erros de sintaxe.');
+    }
+
+    // GPMC report can have <GPO> as root, or <GPOs> containing <GPO> elements
+    const gpoElements = xmlDoc.getElementsByTagName('GPO');
+    if (gpoElements.length === 0) {
+      throw new Error('Nenhum objeto GPO (<GPO>) foi encontrado no arquivo XML de relatório.');
+    }
+
+    const parsedGpos: any[] = [];
+
+    for (let i = 0; i < gpoElements.length; i++) {
+      const gpoNode = gpoElements[i];
+      
+      // Extract Name
+      const name = gpoNode.getElementsByTagName('Name')[0]?.textContent || 'GPO Sem Nome';
+      
+      // Extract GUID
+      let id = '';
+      const idNode = gpoNode.getElementsByTagName('Identifier')[0];
+      if (idNode) {
+        const subIdNode = idNode.getElementsByTagName('Identifier')[0];
+        id = (subIdNode?.textContent || idNode.textContent || '').trim().toUpperCase();
+      }
+      if (!id) {
+        id = `{GPO-IMPORT-${Math.random().toString(36).substring(2, 11).toUpperCase()}}`;
+      }
+
+      // Dates
+      const createdTimeStr = gpoNode.getElementsByTagName('CreatedTime')[0]?.textContent || '';
+      const modifiedTimeStr = gpoNode.getElementsByTagName('ModifiedTime')[0]?.textContent || '';
+      
+      const parseTime = (timeStr: string) => {
+        if (!timeStr) return '2026-06-25';
+        return timeStr.split('T')[0];
+      };
+      
+      const modifiedDate = parseTime(modifiedTimeStr);
+
+      // SOMs / Linked OUs
+      const linkedTo: string[] = [];
+      let enforced = false;
+      const somNodes = gpoNode.getElementsByTagName('SOM');
+      for (let j = 0; j < somNodes.length; j++) {
+        const som = somNodes[j];
+        const path = som.getElementsByTagName('Path')[0]?.textContent;
+        const enabled = som.getElementsByTagName('Enabled')[0]?.textContent;
+        if (path && enabled !== 'false') {
+          linkedTo.push(path);
+          const noOverride = som.getElementsByTagName('NoOverride')[0]?.textContent;
+          if (noOverride === 'true') {
+            enforced = true;
+          }
+        }
+      }
+
+      // Classify GPO Type based on Name
+      let gpoType: 'Segurança' | 'Preferências' | 'Modelos Administrativos' | 'Software' | 'Scripts' = 'Segurança';
+      const nameLower = name.toLowerCase();
+      if (nameLower.includes('software') || nameLower.includes('install') || nameLower.includes('deploy')) {
+        gpoType = 'Software';
+      } else if (nameLower.includes('script') || nameLower.includes('logon') || nameLower.includes('logoff') || nameLower.includes('startup') || nameLower.includes('shutdown') || nameLower.includes('.bat') || nameLower.includes('.vbs') || nameLower.includes('.ps1')) {
+        gpoType = 'Scripts';
+      } else if (nameLower.includes('preference') || nameLower.includes('mapeamento') || nameLower.includes('drive') || nameLower.includes('printer') || nameLower.includes('impressora')) {
+        gpoType = 'Preferências';
+      } else if (nameLower.includes('adm') || nameLower.includes('template') || nameLower.includes('chrome') || nameLower.includes('edge') || nameLower.includes('firewall') || nameLower.includes('update') || nameLower.includes('wsus')) {
+        gpoType = 'Modelos Administrativos';
+      } else {
+        gpoType = 'Segurança';
+      }
+
+      // Status
+      let status: 'Ativo' | 'Desativado' | 'Apenas Computador' | 'Apenas Usuário' = 'Ativo';
+      const compEnabledNode = gpoNode.getElementsByTagName('ComputerEnabled')[0];
+      const userEnabledNode = gpoNode.getElementsByTagName('UserEnabled')[0];
+      const compEnabled = compEnabledNode ? compEnabledNode.textContent === 'true' : true;
+      const userEnabled = userEnabledNode ? userEnabledNode.textContent === 'true' : true;
+      
+      if (!compEnabled && !userEnabled) {
+        status = 'Desativado';
+      } else if (compEnabled && !userEnabled) {
+        status = 'Apenas Computador';
+      } else if (!compEnabled && userEnabled) {
+        status = 'Apenas Usuário';
+      }
+
+      // Settings
+      const settings: any[] = [];
+
+      // Parse Settings
+      const configTypes = ['Computer', 'User'] as const;
+      for (const configType of configTypes) {
+        const configNode = gpoNode.getElementsByTagName(configType)[0];
+        if (!configNode) continue;
+
+        // 1. Registry Policy / Administrative Templates
+        const policyNodes = configNode.getElementsByTagName('Policy');
+        for (let k = 0; k < policyNodes.length; k++) {
+          const policyNode = policyNodes[k];
+          const pName = policyNode.getElementsByTagName('Name')[0]?.textContent;
+          const pState = policyNode.getElementsByTagName('State')[0]?.textContent;
+          const pCategory = policyNode.getElementsByTagName('Category')[0]?.textContent || 'Modelos Administrativos';
+          
+          if (pName) {
+            let settingText = pState || 'Habilitado';
+            
+            const comment = policyNode.getElementsByTagName('Comment')[0]?.textContent;
+            if (comment) settingText += `\nComentário: ${comment}`;
+            
+            const valueNodes = policyNode.getElementsByTagName('Value');
+            if (valueNodes.length > 0) {
+              const valList: string[] = [];
+              for (let v = 0; v < valueNodes.length; v++) {
+                const vn = valueNodes[v];
+                const vnName = vn.getElementsByTagName('Name')[0]?.textContent;
+                const vnSetting = vn.getElementsByTagName('Setting')[0]?.textContent || vn.textContent;
+                valList.push(vnName ? `${vnName}: ${vnSetting}` : String(vnSetting));
+              }
+              if (valList.length > 0) {
+                settingText += `\nValores:\n` + valList.join('\n');
+              }
+            }
+
+            settings.push({
+              category: configType,
+              path: `Administrative Templates > ${pCategory}`,
+              policy: pName,
+              setting: settingText,
+              status: pState === 'Disabled' ? 'Desativado' : 'Habilitado'
+            });
+          }
+        }
+
+        // 2. Security Settings (Computer Settings only)
+        if (configType === 'Computer') {
+          // Account Policies
+          const accountNode = configNode.getElementsByTagName('Account')[0];
+          if (accountNode) {
+            const policies = accountNode.children;
+            for (let k = 0; k < policies.length; k++) {
+              const p = policies[k];
+              const pName = p.tagName.replace(/([A-Z])/g, ' $1').trim();
+              const pValue = p.getElementsByTagName('Value')[0]?.textContent || p.textContent || '';
+              if (pValue.trim()) {
+                settings.push({
+                  category: 'Computer',
+                  path: 'Windows Settings > Security Settings > Account Policies',
+                  policy: pName,
+                  setting: pValue,
+                  status: 'Habilitado'
+                });
+              }
+            }
+          }
+
+          // Security Options
+          const secOptionsNode = configNode.getElementsByTagName('SecurityOptions')[0];
+          if (secOptionsNode) {
+            const optionNodes = secOptionsNode.getElementsByTagName('SecurityOption');
+            for (let k = 0; k < optionNodes.length; k++) {
+              const opt = optionNodes[k];
+              const optName = opt.getElementsByTagName('Name')[0]?.textContent || '';
+              const optValue = opt.getElementsByTagName('Display')[0]?.textContent || opt.getElementsByTagName('Setting')[0]?.textContent || '';
+              if (optName && optValue) {
+                settings.push({
+                  category: 'Computer',
+                  path: 'Windows Settings > Security Settings > Local Policies > Security Options',
+                  policy: optName,
+                  setting: optValue,
+                  status: 'Habilitado'
+                });
+              }
+            }
+          }
+
+          // User Rights
+          const privRightsNode = configNode.getElementsByTagName('PrivilegeRights')[0];
+          if (privRightsNode) {
+            const privNodes = privRightsNode.getElementsByTagName('PrivilegeRight');
+            for (let k = 0; k < privNodes.length; k++) {
+              const priv = privNodes[k];
+              const privName = priv.getElementsByTagName('Name')[0]?.textContent || '';
+              const groups = Array.from(priv.getElementsByTagName('UserOrGroup')).map(g => g.textContent).join(', ');
+              if (privName && groups) {
+                settings.push({
+                  category: 'Computer',
+                  path: 'Windows Settings > Security Settings > Local Policies > User Rights Assignment',
+                  policy: privName,
+                  setting: `Atribuído a: ${groups}`,
+                  status: 'Habilitado'
+                });
+              }
+            }
+          }
+        }
+
+        // 3. Scripts Settings
+        const scriptsNode = configNode.getElementsByTagName('Scripts')[0];
+        if (scriptsNode) {
+          const scriptNodes = scriptsNode.getElementsByTagName('Script');
+          for (let k = 0; k < scriptNodes.length; k++) {
+            const scr = scriptNodes[k];
+            const typeNode = scr.parentElement?.getElementsByTagName('ScriptType')[0] || scr.parentElement?.parentElement?.getElementsByTagName('ScriptType')[0];
+            const scriptType = typeNode?.textContent || 'Logon';
+            const cmd = scr.getElementsByTagName('Command')[0]?.textContent || scr.getElementsByTagName('Name')[0]?.textContent || '';
+            const args = scr.getElementsByTagName('Arguments')[0]?.textContent || scr.getElementsByTagName('Parameters')[0]?.textContent || 'Sem parâmetros';
+            if (cmd) {
+              settings.push({
+                category: configType,
+                path: `Windows Settings > Scripts (${scriptType})`,
+                policy: `Script: ${cmd}`,
+                setting: `Parâmetros: ${args}`,
+                status: 'Habilitado'
+              });
+            }
+          }
+        }
+
+        // 4. Preferences
+        const prefNode = configNode.getElementsByTagName('Preferences')[0];
+        if (prefNode) {
+          // Drive Maps
+          const driveNodes = prefNode.getElementsByTagName('Drive');
+          for (let k = 0; k < driveNodes.length; k++) {
+            const dNode = driveNodes[k];
+            const letter = dNode.getElementsByTagName('Letter')[0]?.textContent || dNode.getAttribute('letter') || '';
+            const pPath = dNode.getElementsByTagName('Path')[0]?.textContent || dNode.getAttribute('path') || '';
+            const action = dNode.getElementsByTagName('Action')[0]?.textContent || dNode.getAttribute('action') || 'Update';
+            const label = dNode.getElementsByTagName('Label')[0]?.textContent || dNode.getAttribute('label') || 'Compartilhamento';
+            if (letter && pPath) {
+              settings.push({
+                category: configType,
+                path: 'User Preferences > Windows Settings > Drive Maps',
+                policy: `Map Drive ${letter}:`,
+                setting: `Ação: ${action}\nCaminho: ${pPath}\nRótulo: ${label}`,
+                status: 'Habilitado'
+              });
+            }
+          }
+
+          // Printers
+          const printerNodes = prefNode.getElementsByTagName('Printer');
+          for (let k = 0; k < printerNodes.length; k++) {
+            const pNode = printerNodes[k];
+            const pName = pNode.getElementsByTagName('Name')[0]?.textContent || pNode.getAttribute('name') || '';
+            const pPath = pNode.getElementsByTagName('Path')[0]?.textContent || pNode.getAttribute('path') || '';
+            const action = pNode.getElementsByTagName('Action')[0]?.textContent || pNode.getAttribute('action') || 'Create';
+            if (pName || pPath) {
+              settings.push({
+                category: configType,
+                path: 'User Preferences > Control Panel Settings > Printers',
+                policy: `Conexão de Impressora: ${pName || 'Compartilhada'}`,
+                setting: `Ação: ${action}\nCaminho da Fila: ${pPath || 'HP LaserJet'}`,
+                status: 'Habilitado'
+              });
+            }
+          }
+        }
+      }
+
+      // Fallback: If no settings were structured but we have custom elements, let's look for anything with text inside Extensions
+      if (settings.length === 0) {
+        const extElements = gpoNode.getElementsByTagName('ExtensionData');
+        for (let k = 0; k < extElements.length; k++) {
+          const ext = extElements[k];
+          const children = ext.querySelectorAll('*');
+          children.forEach(child => {
+            if (child.children.length === 0 && child.textContent?.trim() && child.tagName !== 'Name' && child.tagName !== 'Identifier') {
+              const parentName = child.parentElement?.tagName || 'Opção';
+              settings.push({
+                category: 'Computer',
+                path: `GPO Extensions > ${parentName}`,
+                policy: child.tagName,
+                setting: child.textContent.trim(),
+                status: 'Habilitado'
+              });
+            }
+          });
+        }
+      }
+
+      if (settings.length === 0) {
+        settings.push({
+          category: 'Computer',
+          path: 'Escopo > Informação',
+          policy: 'Políticas do Sistema',
+          setting: 'Esta GPO foi carregada sem diretivas adicionais no escopo do arquivo XML.',
+          status: 'Habilitado'
+        });
+      }
+
+      parsedGpos.push({
+        id,
+        name,
+        status,
+        linkedTo,
+        enforced,
+        gpoType,
+        description: `GPO real importada diretamente do relatório XML do Active Directory. ID original: ${id}.`,
+        modifiedDate,
+        author: gpoNode.getElementsByTagName('Author')[0]?.textContent || 'administrator@empresa.local',
+        settings
+      });
+    }
+
+    return parsedGpos;
+  };
+
+  // File Upload Handlers
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImportingFile(true);
+    setImportError(null);
+    setImportSuccessMsg(null);
+    setParsedPreviewGpos([]);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const result = parseGPMCReportXml(text);
+        setParsedPreviewGpos(result);
+      } catch (err: any) {
+        console.error(err);
+        setImportError(err.message || 'Falha ao processar o arquivo XML. Certifique-se de que é um relatório GPMC XML válido.');
+      } finally {
+        setImportingFile(false);
+      }
+    };
+    reader.onerror = () => {
+      setImportError('Erro ao ler o arquivo.');
+      setImportingFile(false);
+    };
+    reader.readAsText(file);
+  };
+
+  // Submit parsed GPOs to Backend
+  const handleImportSubmit = async () => {
+    if (parsedPreviewGpos.length === 0) return;
+    setLoading(true);
+    try {
+      const response = await fetch('/api/ad/gpos/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gpos: parsedPreviewGpos })
+      });
+
+      if (!response.ok) {
+        throw new Error('Falha ao salvar as GPOs importadas no servidor.');
+      }
+
+      const resData = await response.json();
+      setImportSuccessMsg(`Sucesso! ${resData.importedCount} GPOs importadas e ${resData.updatedCount} GPOs atualizadas com as configurações reais.`);
+      setParsedPreviewGpos([]);
+      setShowImportArea(false);
+      await fetchGpos(); // Reload GPOs
+    } catch (err: any) {
+      setImportError(err.message || 'Erro ao sincronizar GPOs importadas com o servidor.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Reset GPOs back to defaults
+  const handleResetGpos = async () => {
+    if (!window.confirm('Tem certeza de que deseja remover todas as GPOs reais importadas e restaurar a simulação padrão?')) return;
+    setLoading(true);
+    try {
+      const response = await fetch('/api/ad/gpos/reset', { method: 'POST' });
+      if (!response.ok) throw new Error('Falha ao resetar as GPOs no servidor.');
+      setImportSuccessMsg('As GPOs importadas foram apagadas e a lista padrão restaurada.');
+      await fetchGpos(); // Reload GPOs
+    } catch (err: any) {
+      setError(err.message || 'Erro ao resetar GPOs.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Fetch GPOs from backend
   const fetchGpos = async () => {
@@ -217,25 +617,153 @@ export default function GroupPolicies() {
   return (
     <div className="flex flex-col gap-6" id="group-policies-section">
       
-      {/* Read-Only Mode Banner */}
-      <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-3xs">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
-            <Lock className="w-4 h-4" />
+      {/* Read-Only Mode Banner / Control Center */}
+      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-col gap-4 shadow-3xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0 border border-blue-200">
+              <ShieldCheck className="w-4 h-4" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-slate-900 leading-tight">Auditoria e Sincronização de Diretivas (GPO)</h4>
+              <p className="text-[10.5px] text-slate-500 mt-0.5">
+                Visualize as configurações reais das GPOs do seu domínio importando o relatório XML gerado no Active Directory.
+              </p>
+            </div>
           </div>
-          <div>
-            <h4 className="text-xs font-bold text-amber-900 leading-tight">Módulo de Leitura e Auditoria de GPOs</h4>
-            <p className="text-[10.5px] text-amber-700 mt-0.5">As diretivas exibidas abaixo são carregadas diretamente do domínio. Modificações e criações são desativadas por segurança.</p>
+          
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setShowImportArea(!showImportArea)}
+              className={`text-[11px] font-bold px-3 py-1.5 rounded-lg border flex items-center gap-1.5 cursor-pointer transition-all ${
+                showImportArea 
+                  ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700' 
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              <Upload className="w-3 h-3" />
+              Importar Relatório XML
+            </button>
+            <button
+              onClick={handleResetGpos}
+              className="text-[11px] font-bold text-rose-700 hover:text-rose-900 bg-white hover:bg-rose-50 px-3 py-1.5 rounded-lg border border-rose-200 flex items-center gap-1.5 cursor-pointer transition-all"
+              title="Apagar GPOs importadas e voltar para o simulador"
+            >
+              <Trash2 className="w-3 h-3" />
+              Restaurar Padrão
+            </button>
+            <button
+              onClick={fetchGpos}
+              className="text-[11px] font-bold text-slate-700 hover:text-slate-950 bg-white hover:bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 flex items-center gap-1.5 cursor-pointer transition-all"
+            >
+              <RefreshCw className="w-3 h-3" />
+              Sincronizar AD
+            </button>
           </div>
         </div>
-        
-        <button
-          onClick={fetchGpos}
-          className="text-[11px] font-bold text-amber-800 hover:text-amber-950 bg-white hover:bg-amber-100/50 px-2.5 py-1.5 rounded-lg border border-amber-200 flex items-center gap-1.5 self-start sm:self-auto cursor-pointer transition-all"
-        >
-          <RefreshCw className="w-3 h-3" />
-          Sincronizar Sysvol
-        </button>
+
+        {/* Dynamic Success / Info Message */}
+        {importSuccessMsg && (
+          <div className="bg-emerald-50 border border-emerald-100 text-emerald-800 rounded-lg p-2.5 text-xs font-medium flex items-center gap-2 animate-fade-in">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{importSuccessMsg}</span>
+            <button className="ml-auto text-emerald-500 hover:text-emerald-700 font-bold" onClick={() => setImportSuccessMsg(null)}>×</button>
+          </div>
+        )}
+
+        {/* Collapsible GPMC XML Upload Area */}
+        {showImportArea && (
+          <div className="border-t border-slate-200/80 pt-4 mt-1 flex flex-col gap-4 animate-fade-in bg-white p-4 rounded-xl border border-dashed border-slate-300">
+            <div className="flex flex-col gap-1">
+              <h5 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <FileCode className="w-4 h-4 text-blue-600" />
+                Como gerar o relatório real de GPOs do seu Active Directory:
+              </h5>
+              <p className="text-[10.5px] text-slate-500 leading-relaxed max-w-3xl mt-1">
+                Abra o PowerShell como Administrador no seu controlador de domínio e execute o comando abaixo para gerar o arquivo XML contendo todas as políticas e suas configurações reais:
+              </p>
+              <div className="bg-slate-950 text-slate-200 font-mono text-[10.5px] p-2.5 rounded-lg mt-1.5 border border-slate-800 overflow-x-auto select-all flex items-center justify-between">
+                <code>Get-GPOReport -All -ReportType Xml -Path "C:\gpo_report.xml"</code>
+                <span className="text-[9px] text-slate-500 uppercase font-sans font-bold bg-slate-800 px-1.5 py-0.5 rounded">PowerShell</span>
+              </div>
+              <p className="text-[10px] text-slate-400 mt-1">
+                Depois, arraste ou faça o upload do arquivo <code className="font-mono text-slate-500">gpo_report.xml</code> gerado para visualizar as configurações exatas de logon scripts (.bat, .vbs), políticas de senhas e administrativas no painel.
+              </p>
+            </div>
+
+            <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-xl p-8 bg-slate-50/50 hover:bg-slate-50 transition-all cursor-pointer relative">
+              <input 
+                type="file" 
+                accept=".xml" 
+                onChange={handleFileUpload} 
+                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+              />
+              <Upload className="w-8 h-8 text-slate-400 mb-2 animate-pulse" />
+              <span className="text-xs font-bold text-slate-600">Selecione ou solte o arquivo XML do relatório de GPO</span>
+              <span className="text-[10px] text-slate-400 mt-1">Suporta arquivos XML de GPO unitárias ou relatórios completos (-All)</span>
+            </div>
+
+            {importingFile && (
+              <div className="flex items-center gap-2 text-xs text-blue-600 font-bold justify-center py-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Analisando estrutura do relatório XML...</span>
+              </div>
+            )}
+
+            {importError && (
+              <div className="bg-rose-50 border border-rose-100 text-rose-800 p-3 rounded-lg text-xs flex items-center gap-2">
+                <XCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{importError}</span>
+              </div>
+            )}
+
+            {/* XML Import Preview Area */}
+            {parsedPreviewGpos.length > 0 && (
+              <div className="flex flex-col gap-3 border-t border-slate-100 pt-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    Preview: {parsedPreviewGpos.length} {parsedPreviewGpos.length === 1 ? 'GPO detectada' : 'GPOs detectadas'} no relatório
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => setParsedPreviewGpos([])}
+                      className="text-slate-500 hover:text-slate-700 text-xs font-semibold bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button 
+                      onClick={handleImportSubmit}
+                      className="text-white bg-blue-600 hover:bg-blue-700 text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer transition-all shadow-xs"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      Importar {parsedPreviewGpos.length} GPOs reais
+                    </button>
+                  </div>
+                </div>
+
+                <div className="max-h-[180px] overflow-y-auto border border-slate-100 rounded-lg divide-y divide-slate-100">
+                  {parsedPreviewGpos.map((pGpo, index) => (
+                    <div key={index} className="p-2.5 flex items-center justify-between bg-slate-50/20 text-xs hover:bg-slate-50/50 transition-all">
+                      <div className="flex flex-col min-w-0 flex-1 pr-4">
+                        <span className="font-bold text-slate-700 truncate">{pGpo.name}</span>
+                        <span className="text-[10px] text-slate-400 font-mono mt-0.5 truncate">{pGpo.id}</span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                          {pGpo.gpoType}
+                        </span>
+                        <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
+                          {pGpo.settings.length} diretivas
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
       
       {/* Visual Metric KPI Cards Row */}

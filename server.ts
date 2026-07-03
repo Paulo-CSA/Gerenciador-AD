@@ -1200,8 +1200,12 @@ app.post("/api/ad/logs/create", (req, res) => {
 app.get("/api/ad/gpos", async (req, res) => {
   try {
     const cfg = readConfig();
+    const db = readDatabase();
     
     if (cfg.useDemoMode) {
+      if (db.gpos && db.gpos.length > 0) {
+        return res.json(db.gpos);
+      }
       const demoGPOs = generateDemoGPOs();
       return res.json(demoGPOs);
     }
@@ -1221,7 +1225,10 @@ app.get("/api/ad/gpos", async (req, res) => {
     }, (err: any, results: any) => {
       if (err) {
         console.error("Erro ao buscar GPOs do AD:", err);
-        // Fallback to demo GPOs if real AD query fails to prevent breaking the UI
+        // Fallback to imported GPOs if real AD query fails, otherwise to demo GPOs
+        if (db.gpos && db.gpos.length > 0) {
+          return res.json(db.gpos);
+        }
         const demoGPOs = generateDemoGPOs();
         return res.json(demoGPOs);
       }
@@ -1236,7 +1243,9 @@ app.get("/api/ad/gpos", async (req, res) => {
         }, (err2: any, results2: any) => {
           if (err2) {
             console.error("Erro ao buscar vínculos de GPOs no AD (err2):", err2);
-            // Fallback to demo GPOs if OU query fails due to permission degradation or other issues
+            if (db.gpos && db.gpos.length > 0) {
+              return res.json(db.gpos);
+            }
             const demoGPOs = generateDemoGPOs();
             return res.json(demoGPOs);
           }
@@ -1291,7 +1300,6 @@ app.get("/api/ad/gpos", async (req, res) => {
             // Get OUs linked and if GPO is enforced on any of them
             const links = linksMap[guid] || [];
             const linkedTo = links.map(l => {
-              // Format DN to be more readable or keep full DN
               return l.ou;
             });
             const enforced = links.some(l => l.enforced);
@@ -1330,23 +1338,128 @@ app.get("/api/ad/gpos", async (req, res) => {
           // Sort GPOs alphabetically by name
           gpos.sort((a: any, b: any) => a.name.localeCompare(b.name));
 
-          const enrichedGpos = gpos.map((g: any) => ({
-            ...g,
-            settings: getGPOSettings(g.name, g.gpoType)
-          }));
+          const enrichedGpos = gpos.map((g: any) => {
+            const dbGpo = db.gpos?.find((item: any) => item.id.toUpperCase() === g.id.toUpperCase());
+            return {
+              ...g,
+              gpoType: dbGpo?.gpoType || g.gpoType,
+              description: dbGpo?.description || g.description,
+              settings: dbGpo && dbGpo.settings && dbGpo.settings.length > 0 ? dbGpo.settings : getGPOSettings(g.name, g.gpoType)
+            };
+          });
 
           res.json(enrichedGpos);
         });
       } catch (innerErr) {
         console.error("Erro interno ao processar vínculos de GPOs:", innerErr);
+        if (db.gpos && db.gpos.length > 0) {
+          return res.json(db.gpos);
+        }
         const demoGPOs = generateDemoGPOs();
         return res.json(demoGPOs);
       }
     });
   } catch (error) {
     console.error("Erro geral no endpoint de GPOs:", error);
+    const db = readDatabase();
+    if (db.gpos && db.gpos.length > 0) {
+      return res.json(db.gpos);
+    }
     const demoGPOs = generateDemoGPOs();
     return res.json(demoGPOs);
+  }
+});
+
+// 10.1 Import GPMC GPO Reports (XML-based)
+app.post("/api/ad/gpos/import", (req, res) => {
+  try {
+    const { gpos } = req.body;
+    if (!gpos || !Array.isArray(gpos)) {
+      return res.status(400).json({ error: "Lista de GPOs inválida ou vazia no corpo da requisição." });
+    }
+
+    const db = readDatabase();
+    if (!db.gpos) {
+      db.gpos = [];
+    }
+
+    let importedCount = 0;
+    let updatedCount = 0;
+
+    gpos.forEach((newGpo: any) => {
+      if (!newGpo.id || !newGpo.name) return;
+
+      const guid = String(newGpo.id).toUpperCase();
+      const existingIndex = db.gpos.findIndex((g: any) => g.id.toUpperCase() === guid);
+
+      const gpoToSave = {
+        id: guid,
+        name: newGpo.name,
+        status: newGpo.status || "Ativo",
+        linkedTo: Array.isArray(newGpo.linkedTo) ? newGpo.linkedTo : [],
+        enforced: !!newGpo.enforced,
+        gpoType: newGpo.gpoType || "Segurança",
+        description: newGpo.description || `GPO real importada diretamente do relatório XML do Active Directory.`,
+        modifiedDate: newGpo.modifiedDate || getBrazilTimestamp().split(" ")[0],
+        author: newGpo.author || "administrator@empresa.local",
+        settings: Array.isArray(newGpo.settings) ? newGpo.settings : []
+      };
+
+      if (existingIndex >= 0) {
+        db.gpos[existingIndex] = gpoToSave;
+        updatedCount++;
+      } else {
+        db.gpos.push(gpoToSave);
+        importedCount++;
+      }
+    });
+
+    writeDatabase(db);
+
+    // Create an audit log
+    const logDetails = `Importação de GPOs reais via relatório XML GPMC. ${importedCount} novas GPOs importadas, ${updatedCount} atualizadas com configurações reais e sem simulação.`;
+    const newLog = {
+      id: "log_" + Date.now(),
+      timestamp: getBrazilTimestamp(),
+      operator: "admin.silva",
+      action: "Importação de GPO",
+      targetUser: "Sistema GPO",
+      details: logDetails,
+      type: "success"
+    };
+    db.logs.unshift(newLog);
+    writeDatabase(db);
+
+    res.json({ success: true, importedCount, updatedCount });
+  } catch (err: any) {
+    console.error("Erro ao importar GPOs:", err);
+    res.status(500).json({ error: "Erro interno ao processar e salvar GPOs importadas." });
+  }
+});
+
+// 10.2 Reset GPOs to default demo list
+app.post("/api/ad/gpos/reset", (req, res) => {
+  try {
+    const db = readDatabase();
+    db.gpos = [];
+    
+    // Add audit log for GPO reset
+    const newLog = {
+      id: "log_" + Date.now(),
+      timestamp: getBrazilTimestamp(),
+      operator: "admin.silva",
+      action: "Reset de GPO",
+      targetUser: "Sistema GPO",
+      details: "Configurações de GPOs redefinidas para o padrão de demonstração simulado.",
+      type: "warning"
+    };
+    db.logs.unshift(newLog);
+    
+    writeDatabase(db);
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("Erro ao resetar GPOs:", err);
+    res.status(500).json({ error: "Erro ao resetar GPOs." });
   }
 });
 
