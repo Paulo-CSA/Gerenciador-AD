@@ -8,6 +8,15 @@ import dotenv from "dotenv";
 // Load environment variables from .env file
 dotenv.config();
 
+// Prevent unhandled errors from crashing the process (such as unhandled 'error' events in LDAP sockets)
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught Exception capturada pelo servidor AD:", err);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("Unhandled Rejection capturada pelo servidor AD em:", promise, "motivo:", reason);
+});
+
 // @ts-ignore
 import ActiveDirectory from "activedirectory2";
 // @ts-ignore
@@ -1189,129 +1198,148 @@ app.post("/api/ad/logs/create", (req, res) => {
 
 // 10. Get Group Policy Objects (GPOs)
 app.get("/api/ad/gpos", async (req, res) => {
-  const cfg = readConfig();
-  
-  if (cfg.useDemoMode) {
-    const demoGPOs = generateDemoGPOs();
-    return res.json(demoGPOs);
-  }
-
-  const adInstance = new ActiveDirectory({
-    url: cfg.url,
-    baseDN: cfg.baseDN,
-    username: cfg.username,
-    password: cfg.password,
-    connectTimeout: 4000
-  });
-
-  // 1. Search for all Group Policy Containers in AD
-  adInstance.find({
-    filter: '(objectClass=groupPolicyContainer)',
-    attributes: ['cn', 'displayName', 'whenChanged', 'flags', 'gPCFileSysPath', 'gPCMachineExtensionNames', 'gPCUserExtensionNames']
-  }, (err: any, results: any) => {
-    if (err) {
-      console.error("Erro ao buscar GPOs do AD:", err);
-      // Fallback to demo GPOs if real AD query fails to prevent breaking the UI
+  try {
+    const cfg = readConfig();
+    
+    if (cfg.useDemoMode) {
       const demoGPOs = generateDemoGPOs();
       return res.json(demoGPOs);
     }
 
-    const gpoObjects = (results && results.other) || [];
-    
-    // 2. Search for OUs, Containers and Domain root to map linked GPOs
-    adInstance.find({
-      filter: '(|(objectClass=organizationalUnit)(objectClass=domainDNS)(objectClass=container))',
-      attributes: ['distinguishedName', 'dn', 'gPLink']
-    }, (err2: any, results2: any) => {
-      const ouObjects = (results2 && results2.other) || [];
-      const linksMap: Record<string, { ou: string; enforced: boolean }[]> = {};
-
-      ouObjects.forEach((ou: any) => {
-        const dn = ou.distinguishedName || ou.dn;
-        const gPLink = ou.gPLink;
-        if (dn && gPLink && typeof gPLink === 'string') {
-          // Parse gPLink format: [LDAP://CN={GUID},CN=Policies...;FLAGS][...]
-          const regex = /\[LDAP:\/\/([^;]+);(\d+)\]/gi;
-          let match;
-          while ((match = regex.exec(gPLink)) !== null) {
-            const gpoDN = match[1];
-            const flags = parseInt(match[2], 10);
-            
-            const isLinkDisabled = (flags & 1) !== 0;
-            if (isLinkDisabled) continue; // Skip disabled links
-
-            const isEnforced = (flags & 2) !== 0;
-
-            const cnMatch = gpoDN.match(/CN=({[a-f0-9-]+})/i);
-            if (cnMatch) {
-              const guid = cnMatch[1].toUpperCase();
-              if (!linksMap[guid]) {
-                linksMap[guid] = [];
-              }
-              linksMap[guid].push({ ou: dn, enforced: isEnforced });
-            }
-          }
-        }
-      });
-
-      // 3. Map GPO LDAP objects to GPO interface
-      const gpos = gpoObjects.map((gpo: any) => {
-        const guid = String(gpo.cn || "").toUpperCase();
-        const displayName = gpo.displayName || gpo.cn || "Política Sem Nome";
-        
-        // Parse date
-        const modifiedDate = safeParseDate(gpo.whenChanged, "2026-06-25");
-
-        // Parse status (from flags attribute in Active Directory GPO container)
-        // 0 = fully enabled, 1 = user config disabled, 2 = computer config disabled, 3 = fully disabled
-        const flags = parseInt(gpo.flags || "0", 10);
-        let status: 'Ativo' | 'Desativado' | 'Apenas Computador' | 'Apenas Usuário' = 'Ativo';
-        if (flags === 3) status = 'Desativado';
-        else if (flags === 1) status = 'Apenas Computador';
-        else if (flags === 2) status = 'Apenas Usuário';
-
-        // Get OUs linked and if GPO is enforced on any of them
-        const links = linksMap[guid] || [];
-        const linkedTo = links.map(l => {
-          // Format DN to be more readable or keep full DN
-          return l.ou;
-        });
-        const enforced = links.some(l => l.enforced);
-
-        // Classify GPO Type based on its name or standard extensions
-        let gpoType: 'Segurança' | 'Preferências' | 'Modelos Administrativos' | 'Software' | 'Scripts' = 'Segurança';
-        const nameLower = displayName.toLowerCase();
-        if (nameLower.includes('software') || nameLower.includes('install') || nameLower.includes('deploy') || (gpo.gPCMachineExtensionNames && gpo.gPCMachineExtensionNames.includes('appdeploy'))) {
-          gpoType = 'Software';
-        } else if (nameLower.includes('script') || nameLower.includes('logon') || nameLower.includes('logoff') || nameLower.includes('startup') || nameLower.includes('shutdown')) {
-          gpoType = 'Scripts';
-        } else if (nameLower.includes('preference') || nameLower.includes('mapeamento') || nameLower.includes('drive') || nameLower.includes('printer') || nameLower.includes('impressora')) {
-          gpoType = 'Preferências';
-        } else if (nameLower.includes('adm') || nameLower.includes('template') || nameLower.includes('chrome') || nameLower.includes('edge') || nameLower.includes('firewall') || nameLower.includes('update') || nameLower.includes('wsus')) {
-          gpoType = 'Modelos Administrativos';
-        } else {
-          gpoType = 'Segurança';
-        }
-
-        return {
-          id: guid,
-          name: displayName,
-          status,
-          linkedTo,
-          enforced,
-          gpoType,
-          description: `GPO originada diretamente do Active Directory. Caminho no Sysvol: ${gpo.gPCFileSysPath || "N/A"}.`,
-          modifiedDate,
-          author: "administrator@empresa.local"
-        };
-      });
-
-      // Sort GPOs alphabetically by name
-      gpos.sort((a: any, b: any) => a.name.localeCompare(b.name));
-
-      res.json(gpos);
+    const adInstance = new ActiveDirectory({
+      url: cfg.url,
+      baseDN: cfg.baseDN,
+      username: cfg.username,
+      password: cfg.password,
+      connectTimeout: 4000
     });
-  });
+
+    // 1. Search for all Group Policy Containers in AD
+    adInstance.find({
+      filter: '(objectClass=groupPolicyContainer)',
+      attributes: ['cn', 'displayName', 'whenChanged', 'flags', 'gPCFileSysPath', 'gPCMachineExtensionNames', 'gPCUserExtensionNames']
+    }, (err: any, results: any) => {
+      if (err) {
+        console.error("Erro ao buscar GPOs do AD:", err);
+        // Fallback to demo GPOs if real AD query fails to prevent breaking the UI
+        const demoGPOs = generateDemoGPOs();
+        return res.json(demoGPOs);
+      }
+
+      const gpoObjects = (results && results.other) || [];
+      
+      try {
+        // 2. Search for OUs, Containers and Domain root to map linked GPOs
+        adInstance.find({
+          filter: '(|(objectClass=organizationalUnit)(objectClass=domainDNS)(objectClass=container))',
+          attributes: ['distinguishedName', 'dn', 'gPLink']
+        }, (err2: any, results2: any) => {
+          if (err2) {
+            console.error("Erro ao buscar vínculos de GPOs no AD (err2):", err2);
+            // Fallback to demo GPOs if OU query fails due to permission degradation or other issues
+            const demoGPOs = generateDemoGPOs();
+            return res.json(demoGPOs);
+          }
+
+          const ouObjects = (results2 && results2.other) || [];
+          const linksMap: Record<string, { ou: string; enforced: boolean }[]> = {};
+
+          ouObjects.forEach((ou: any) => {
+            const dn = ou.distinguishedName || ou.dn;
+            const gPLink = ou.gPLink;
+            if (dn && gPLink && typeof gPLink === 'string') {
+              // Parse gPLink format: [LDAP://CN={GUID},CN=Policies...;FLAGS][...]
+              const regex = /\[LDAP:\/\/([^;]+);(\d+)\]/gi;
+              let match;
+              while ((match = regex.exec(gPLink)) !== null) {
+                const gpoDN = match[1];
+                const flags = parseInt(match[2], 10);
+                
+                const isLinkDisabled = (flags & 1) !== 0;
+                if (isLinkDisabled) continue; // Skip disabled links
+
+                const isEnforced = (flags & 2) !== 0;
+
+                const cnMatch = gpoDN.match(/CN=({[a-f0-9-]+})/i);
+                if (cnMatch) {
+                  const guid = cnMatch[1].toUpperCase();
+                  if (!linksMap[guid]) {
+                    linksMap[guid] = [];
+                  }
+                  linksMap[guid].push({ ou: dn, enforced: isEnforced });
+                }
+              }
+            }
+          });
+
+          // 3. Map GPO LDAP objects to GPO interface
+          const gpos = gpoObjects.map((gpo: any) => {
+            const guid = String(gpo.cn || "").toUpperCase();
+            const displayName = gpo.displayName || gpo.cn || "Política Sem Nome";
+            
+            // Parse date
+            const modifiedDate = safeParseDate(gpo.whenChanged, "2026-06-25");
+
+            // Parse status (from flags attribute in Active Directory GPO container)
+            // 0 = fully enabled, 1 = user config disabled, 2 = computer config disabled, 3 = fully disabled
+            const flags = parseInt(gpo.flags || "0", 10);
+            let status: 'Ativo' | 'Desativado' | 'Apenas Computador' | 'Apenas Usuário' = 'Ativo';
+            if (flags === 3) status = 'Desativado';
+            else if (flags === 1) status = 'Apenas Computador';
+            else if (flags === 2) status = 'Apenas Usuário';
+
+            // Get OUs linked and if GPO is enforced on any of them
+            const links = linksMap[guid] || [];
+            const linkedTo = links.map(l => {
+              // Format DN to be more readable or keep full DN
+              return l.ou;
+            });
+            const enforced = links.some(l => l.enforced);
+
+            // Classify GPO Type based on its name or standard extensions
+            let gpoType: 'Segurança' | 'Preferências' | 'Modelos Administrativos' | 'Software' | 'Scripts' = 'Segurança';
+            const nameLower = displayName.toLowerCase();
+            if (nameLower.includes('software') || nameLower.includes('install') || nameLower.includes('deploy') || (gpo.gPCMachineExtensionNames && gpo.gPCMachineExtensionNames.includes('appdeploy'))) {
+              gpoType = 'Software';
+            } else if (nameLower.includes('script') || nameLower.includes('logon') || nameLower.includes('logoff') || nameLower.includes('startup') || nameLower.includes('shutdown')) {
+              gpoType = 'Scripts';
+            } else if (nameLower.includes('preference') || nameLower.includes('mapeamento') || nameLower.includes('drive') || nameLower.includes('printer') || nameLower.includes('impressora')) {
+              gpoType = 'Preferências';
+            } else if (nameLower.includes('adm') || nameLower.includes('template') || nameLower.includes('chrome') || nameLower.includes('edge') || nameLower.includes('firewall') || nameLower.includes('update') || nameLower.includes('wsus')) {
+              gpoType = 'Modelos Administrativos';
+            } else {
+              gpoType = 'Segurança';
+            }
+
+            return {
+              id: guid,
+              name: displayName,
+              status,
+              linkedTo,
+              enforced,
+              gpoType,
+              description: `GPO originada diretamente do Active Directory. Caminho no Sysvol: ${gpo.gPCFileSysPath || "N/A"}.`,
+              modifiedDate,
+              author: "administrator@empresa.local"
+            };
+          });
+
+          // Sort GPOs alphabetically by name
+          gpos.sort((a: any, b: any) => a.name.localeCompare(b.name));
+
+          res.json(gpos);
+        });
+      } catch (innerErr) {
+        console.error("Erro interno ao processar vínculos de GPOs:", innerErr);
+        const demoGPOs = generateDemoGPOs();
+        return res.json(demoGPOs);
+      }
+    });
+  } catch (error) {
+    console.error("Erro geral no endpoint de GPOs:", error);
+    const demoGPOs = generateDemoGPOs();
+    return res.json(demoGPOs);
+  }
 });
 
 function generateDemoGPOs() {
