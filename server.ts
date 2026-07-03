@@ -1299,9 +1299,12 @@ app.get("/api/ad/gpos", async (req, res) => {
             // Classify GPO Type based on its name or standard extensions
             let gpoType: 'Segurança' | 'Preferências' | 'Modelos Administrativos' | 'Software' | 'Scripts' = 'Segurança';
             const nameLower = displayName.toLowerCase();
+            const hasScriptExtension = (gpo.gPCMachineExtensionNames && gpo.gPCMachineExtensionNames.includes('42B5FAAE-6536-11D2-AE5A-0000F87571E3')) ||
+                                       (gpo.gPCUserExtensionNames && gpo.gPCUserExtensionNames.includes('42B5FAAE-6536-11D2-AE5A-0000F87571E3'));
+
             if (nameLower.includes('software') || nameLower.includes('install') || nameLower.includes('deploy') || (gpo.gPCMachineExtensionNames && gpo.gPCMachineExtensionNames.includes('appdeploy'))) {
               gpoType = 'Software';
-            } else if (nameLower.includes('script') || nameLower.includes('logon') || nameLower.includes('logoff') || nameLower.includes('startup') || nameLower.includes('shutdown')) {
+            } else if (hasScriptExtension || nameLower.includes('script') || nameLower.includes('logon') || nameLower.includes('logoff') || nameLower.includes('startup') || nameLower.includes('shutdown') || nameLower.includes('.vbs') || nameLower.includes('.bat') || nameLower.includes('.ps1') || nameLower.includes('.cmd') || nameLower.includes('login') || nameLower.includes('executa')) {
               gpoType = 'Scripts';
             } else if (nameLower.includes('preference') || nameLower.includes('mapeamento') || nameLower.includes('drive') || nameLower.includes('printer') || nameLower.includes('impressora')) {
               gpoType = 'Preferências';
@@ -1476,16 +1479,64 @@ function getGPOSettings(gpoName: string, gpoType: string): any[] {
   }
 
   if (gpoType === 'Scripts') {
-    const isLogon = nameLower.includes('logon');
-    const isStartup = nameLower.includes('inicialização') || nameLower.includes('startup');
-    const scriptFile = nameLower.includes('auditoria') ? 'AuditLogon.ps1' : nameLower.includes('limpeza') ? 'CleanTemp.bat' : 'TimeSync.ps1';
+    const isLogoff = nameLower.includes('logoff') || nameLower.includes('encerramento') || nameLower.includes('shutdown');
+    const isStartup = nameLower.includes('inicialização') || nameLower.includes('startup') || nameLower.includes('computador') || nameLower.includes('computer');
+    // Default to Logon if not startup or logoff (logon scripts are extremely common)
+    const isLogon = !isStartup && !isLogoff;
+
+    // Detect format/extension: .vbs, .bat, .ps1, .cmd
+    let extension = '.vbs';
+    if (nameLower.includes('.vbs') || nameLower.includes('vbs')) {
+      extension = '.vbs';
+    } else if (nameLower.includes('.bat') || nameLower.includes('bat')) {
+      extension = '.bat';
+    } else if (nameLower.includes('.ps1') || nameLower.includes('ps1') || nameLower.includes('powershell')) {
+      extension = '.ps1';
+    } else if (nameLower.includes('.cmd') || nameLower.includes('cmd')) {
+      extension = '.cmd';
+    } else {
+      // Default based on logon vs startup
+      extension = isStartup ? '.bat' : '.vbs';
+    }
+
+    // Generate clean file name from GPO Name
+    let baseFileName = gpoName
+      .replace(/\.vbs/gi, '')
+      .replace(/\.bat/gi, '')
+      .replace(/\.cmd/gi, '')
+      .replace(/\.ps1/gi, '')
+      .replace(/GPO[-_]/gi, '')
+      .trim();
+
+    if (!baseFileName || baseFileName.toLowerCase() === 'script' || baseFileName.toLowerCase() === 'scripts') {
+      baseFileName = isStartup ? 'StartupScript' : 'LogonScript';
+    }
+
+    const scriptFile = `${baseFileName}${extension}`;
+
+    let path = '';
+    let policy = '';
+    let category: 'Computer' | 'User' = 'User';
+
+    if (isStartup) {
+      category = 'Computer';
+      path = 'Configurações do Computador > Configurações do Windows > Scripts (Inicialização/Encerramento) > Inicialização';
+      policy = 'Script de Inicialização';
+    } else if (isLogoff) {
+      category = 'User';
+      path = 'Configurações do Usuário > Configurações do Windows > Scripts (Logon/Logoff) > Logoff';
+      policy = 'Script de Logoff';
+    } else {
+      category = 'User';
+      path = 'Configurações do Usuário > Configurações do Windows > Scripts (Logon/Logoff) > Logon';
+      policy = 'Script de Logon';
+    }
+
     return [
       {
-        category: isStartup ? 'Computer' : 'User',
-        path: isStartup 
-          ? 'Configurações do Computador > Configurações do Windows > Scripts (Inicialização/Encerramento) > Inicialização'
-          : `Configurações do Usuário > Configurações do Windows > Scripts (${isLogon ? 'Logon' : 'Logoff'}/Logoff) > ${isLogon ? 'Logon' : 'Logoff'}`,
-        policy: isStartup ? 'Script de Inicialização' : isLogon ? 'Script de Logon' : 'Script de Logoff',
+        category,
+        path,
+        policy,
         setting: scriptFile,
         status: 'Habilitado'
       }
