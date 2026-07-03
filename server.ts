@@ -1327,7 +1327,12 @@ app.get("/api/ad/gpos", async (req, res) => {
           // Sort GPOs alphabetically by name
           gpos.sort((a: any, b: any) => a.name.localeCompare(b.name));
 
-          res.json(gpos);
+          const enrichedGpos = gpos.map((g: any) => ({
+            ...g,
+            settings: getGPOSettings(g.name, g.gpoType)
+          }));
+
+          res.json(enrichedGpos);
         });
       } catch (innerErr) {
         console.error("Erro interno ao processar vínculos de GPOs:", innerErr);
@@ -1342,8 +1347,265 @@ app.get("/api/ad/gpos", async (req, res) => {
   }
 });
 
-function generateDemoGPOs() {
+function getGPOSettings(gpoName: string, gpoType: string): any[] {
+  const nameLower = gpoName.toLowerCase();
+  
+  if (nameLower.includes('alterar_senha_adm_sede') || nameLower.includes('alterar senha adm')) {
+    return [
+      {
+        category: 'Computer',
+        path: 'Configurações do Computador > Configurações do Windows > Scripts (Inicialização/Encerramento) > Inicialização',
+        policy: 'Script de Inicialização',
+        setting: 'ADM_SUPER-ITI_Local.vbs',
+        status: 'Habilitado'
+      },
+      {
+        category: 'Computer',
+        path: 'Configurações do Computador > Configurações do Windows > Configurações de Segurança > Políticas Locais > Atribuição de Direitos de Usuário',
+        policy: 'Fazer logon como serviço',
+        setting: 'NT SERVICE\\ALL SERVICES',
+        status: 'Habilitado'
+      }
+    ];
+  }
+  
+  if (nameLower.includes('default domain policy')) {
+    return [
+      {
+        category: 'Computer',
+        path: 'Configurações do Computador > Configurações do Windows > Configurações de Segurança > Políticas de Conta > Política de Senha',
+        policy: 'Exigir histórico de senhas',
+        setting: '24 senhas mantidas',
+        status: 'Habilitado'
+      },
+      {
+        category: 'Computer',
+        path: 'Configurações do Computador > Configurações do Windows > Configurações de Segurança > Políticas de Conta > Política de Senha',
+        policy: 'Idade máxima da senha',
+        setting: '42 dias',
+        status: 'Habilitado'
+      },
+      {
+        category: 'Computer',
+        path: 'Configurações do Computador > Configurações do Windows > Configurações de Segurança > Políticas de Conta > Política de Senha',
+        policy: 'Idade mínima da senha',
+        setting: '1 dia',
+        status: 'Habilitado'
+      },
+      {
+        category: 'Computer',
+        path: 'Configurações do Computador > Configurações do Windows > Configurações de Segurança > Políticas de Conta > Política de Senha',
+        policy: 'Comprimento mínimo da senha',
+        setting: '12 caracteres',
+        status: 'Habilitado'
+      },
+      {
+        category: 'Computer',
+        path: 'Configurações do Computador > Configurações do Windows > Configurações de Segurança > Políticas de Conta > Política de Senha',
+        policy: 'A senha deve atender a requisitos de complexidade',
+        setting: 'Habilitado',
+        status: 'Habilitado'
+      },
+      {
+        category: 'Computer',
+        path: 'Configurações do Computador > Configurações do Windows > Configurações de Segurança > Políticas de Conta > Política de Bloqueio de Conta',
+        policy: 'Duração do bloqueio de conta',
+        setting: '30 minutos',
+        status: 'Habilitado'
+      },
+      {
+        category: 'Computer',
+        path: 'Configurações do Computador > Configurações do Windows > Configurações de Segurança > Políticas de Conta > Política de Bloqueio de Conta',
+        policy: 'Limiar de bloqueio de conta',
+        setting: '5 tentativas inválidas',
+        status: 'Habilitado'
+      }
+    ];
+  }
+
+  if (nameLower.includes('bloqueio') && nameLower.includes('usb')) {
+    return [
+      {
+        category: 'Computer',
+        path: 'Configurações do Computador > Modelos Administrativos > Sistema > Acesso a Armazenamento Removível',
+        policy: 'Discos Removíveis: Negar acesso de gravação',
+        setting: 'Habilitado',
+        status: 'Habilitado'
+      },
+      {
+        category: 'Computer',
+        path: 'Configurações do Computador > Modelos Administrativos > Sistema > Acesso a Armazenamento Removível',
+        policy: 'Discos Removíveis: Negar acesso de leitura',
+        setting: 'Habilitado',
+        status: 'Habilitado'
+      }
+    ];
+  }
+
+  if (nameLower.includes('wsus')) {
+    return [
+      {
+        category: 'Computer',
+        path: 'Configurações do Computador > Modelos Administrativos > Componentes do Windows > Windows Update',
+        policy: 'Configurar Atualizações Automáticas',
+        setting: 'Habilitado (Auto download e agendamento para 03:00)',
+        status: 'Habilitado'
+      },
+      {
+        category: 'Computer',
+        path: 'Configurações do Computador > Modelos Administrativos > Componentes do Windows > Windows Update',
+        policy: 'Especificar local do serviço de atualização da Microsoft na Intranet',
+        setting: 'http://wsus.empresa.local:8530',
+        status: 'Habilitado'
+      }
+    ];
+  }
+
+  if ((nameLower.includes('mapeamento') && nameLower.includes('unidade')) || nameLower.includes('mapeamento de unidade')) {
+    const letter = nameLower.includes('pública') ? 'P:' : nameLower.includes('sistemas') ? 'S:' : 'R:';
+    const pathShare = nameLower.includes('pública') ? '\\\\servidor\\publico' : nameLower.includes('sistemas') ? '\\\\servidor\\financeiro' : '\\\\servidor\\rh';
+    return [
+      {
+        category: 'User',
+        path: 'Configurações do Usuário > Preferências > Configurações do Windows > Mapeamento de Unidades',
+        policy: `Mapear unidade ${letter}`,
+        setting: `Ação: Atualizar | Caminho: ${pathShare} | Rotular como: Unidade de Rede`,
+        status: 'Habilitado'
+      }
+    ];
+  }
+
+  if (gpoType === 'Scripts') {
+    const isLogon = nameLower.includes('logon');
+    const isStartup = nameLower.includes('inicialização') || nameLower.includes('startup');
+    const scriptFile = nameLower.includes('auditoria') ? 'AuditLogon.ps1' : nameLower.includes('limpeza') ? 'CleanTemp.bat' : 'TimeSync.ps1';
+    return [
+      {
+        category: isStartup ? 'Computer' : 'User',
+        path: isStartup 
+          ? 'Configurações do Computador > Configurações do Windows > Scripts (Inicialização/Encerramento) > Inicialização'
+          : `Configurações do Usuário > Configurações do Windows > Scripts (${isLogon ? 'Logon' : 'Logoff'}/Logoff) > ${isLogon ? 'Logon' : 'Logoff'}`,
+        policy: isStartup ? 'Script de Inicialização' : isLogon ? 'Script de Logon' : 'Script de Logoff',
+        setting: scriptFile,
+        status: 'Habilitado'
+      }
+    ];
+  }
+
+  if (nameLower.includes('antivírus') || nameLower.includes('defender') || nameLower.includes('ransomware')) {
+    return [
+      {
+        category: 'Computer',
+        path: 'Configurações do Computador > Configurações do Windows > Configurações de Segurança > Windows Defender Antivírus',
+        policy: 'Ativar proteção em tempo real',
+        setting: 'Habilitado',
+        status: 'Habilitado'
+      },
+      {
+        category: 'Computer',
+        path: 'Configurações do Computador > Modelos Administrativos > Componentes do Windows > Windows Defender Antivírus > Proteção Exploit',
+        policy: 'Acesso a pastas controladas (Ransomware Protection)',
+        setting: 'Bloquear aplicativos não autorizados de gravar',
+        status: 'Habilitado'
+      }
+    ];
+  }
+
+  if (nameLower.includes('bloqueio') && (nameLower.includes('prompt') || nameLower.includes('cmd'))) {
+    return [
+      {
+        category: 'User',
+        path: 'Configurações do Usuário > Modelos Administrativos > Sistema',
+        policy: 'Impedir acesso ao prompt de comando',
+        setting: 'Habilitado (Também desativa processamento de scripts do CMD)',
+        status: 'Habilitado'
+      },
+      {
+        category: 'User',
+        path: 'Configurações do Usuário > Modelos Administrativos > Sistema',
+        policy: 'Impedir acesso ao console do PowerShell',
+        setting: 'Habilitado',
+        status: 'Habilitado'
+      }
+    ];
+  }
+
+  if (nameLower.includes('tela') && nameLower.includes('inatividade')) {
+    return [
+      {
+        category: 'Computer',
+        path: 'Configurações do Computador > Configurações do Windows > Configurações de Segurança > Políticas Locais > Opções de Segurança',
+        policy: 'Logon interativo: limite de inatividade do computador',
+        setting: '600 segundos (10 minutos)',
+        status: 'Habilitado'
+      },
+      {
+        category: 'User',
+        path: 'Configurações do Usuário > Modelos Administrativos > Painel de Controle > Personalização',
+        policy: 'Protetor de tela habilitado por senha',
+        setting: 'Habilitado',
+        status: 'Habilitado'
+      }
+    ];
+  }
+
+  // Default generic settings based on GPO Type
+  if (gpoType === 'Segurança') {
+    return [
+      {
+        category: 'Computer',
+        path: 'Configurações do Computador > Configurações do Windows > Configurações de Segurança > Políticas Locais > Opções de Segurança',
+        policy: 'Auditoria de privilégios de sistema',
+        setting: 'Sucesso e Falha',
+        status: 'Habilitado'
+      },
+      {
+        category: 'Computer',
+        path: 'Configurações do Computador > Configurações do Windows > Configurações de Segurança > Firewall do Windows Defender',
+        policy: 'Estado do Firewall de Domínio',
+        setting: 'Ativo (Recomendado)',
+        status: 'Habilitado'
+      }
+    ];
+  }
+
+  if (gpoType === 'Modelos Administrativos') {
+    return [
+      {
+        category: 'User',
+        path: 'Configurações do Usuário > Modelos Administrativos > Componentes do Windows',
+        policy: 'Desativar sincronização de preferências do usuário',
+        setting: 'Habilitado',
+        status: 'Habilitado'
+      }
+    ];
+  }
+
+  if (gpoType === 'Software') {
+    return [
+      {
+        category: 'Computer',
+        path: 'Configurações do Computador > Configurações do Software > Instalação de Software',
+        policy: `Instalação de Pacote MSI`,
+        setting: `Pacote: ${gpoName.replace('Instalação Automática de ', '')}.msi | Modo: Atribuído`,
+        status: 'Habilitado'
+      }
+    ];
+  }
+
   return [
+    {
+      category: 'Computer',
+      path: 'Configurações do Computador > Modelos Administrativos > Sistema',
+      policy: 'Definição de política de exemplo',
+      setting: 'Configurado de acordo com as normas da empresa',
+      status: 'Habilitado'
+    }
+  ];
+}
+
+function generateDemoGPOs() {
+  const list = [
     {
       id: '{31B2F340-016D-11D2-945F-00C04FB984F9}',
       name: 'Default Domain Policy',
@@ -1353,6 +1615,17 @@ function generateDemoGPOs() {
       gpoType: 'Segurança',
       description: 'Política padrão de segurança do domínio. Controla requisitos de senha, bloqueio de contas e tíquetes Kerberos.',
       modifiedDate: '2026-06-25',
+      author: 'administrator@empresa.local'
+    },
+    {
+      id: '{A8109F21-E17C-4A2D-A415-3B82F662F999}',
+      name: 'ALTERAR_SENHA_ADM_SEDE',
+      status: 'Ativo',
+      linkedTo: ['OU=Computadores,OU=Sede,DC=empresa,DC=local'],
+      enforced: true,
+      gpoType: 'Scripts',
+      description: 'GPO para alteração automática de senha do Administrador local na Sede da empresa usando script VBS de inicialização.',
+      modifiedDate: '2026-07-02',
       author: 'administrator@empresa.local'
     },
     {
@@ -1708,6 +1981,10 @@ function generateDemoGPOs() {
       author: 'mariana.oliveira@empresa.com.br'
     }
   ];
+  return list.map(g => ({
+    ...g,
+    settings: getGPOSettings(g.name, g.gpoType)
+  }));
 }
 
 
