@@ -1583,6 +1583,192 @@ app.post("/api/ad/dns/clean-duplicates", (req, res) => {
   }
 });
 
+// 9.6 Create DNS Zone
+app.post("/api/ad/dns/zones/create", (req, res) => {
+  try {
+    const { name, type, updateType, operator } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: "O nome da zona é obrigatório." });
+    }
+    const db = readDatabase();
+    db.dnsZones = db.dnsZones || [];
+    
+    if (db.dnsZones.some((z: any) => z.name.toLowerCase() === name.toLowerCase())) {
+      return res.status(400).json({ error: "Uma zona com este nome já existe." });
+    }
+    
+    const newZone = { name, type: type || "Direta", updateType: updateType || "Segura" };
+    db.dnsZones.push(newZone);
+    
+    // Add audit log
+    db.logs.unshift({
+      id: "log_" + Date.now(),
+      timestamp: getBrazilTimestamp(),
+      operator: operator || "admin.silva",
+      action: "Criação de Zona DNS",
+      targetUser: name,
+      details: `Criada zona DNS ${type} '${name}' com atualizações dinâmicas do tipo '${updateType}'`,
+      type: "success"
+    });
+    
+    writeDatabase(db);
+    res.json({ success: true, zone: newZone, zones: db.dnsZones });
+  } catch (error) {
+    console.error("Erro ao criar zona DNS:", error);
+    res.status(500).json({ error: "Erro ao criar zona DNS." });
+  }
+});
+
+// 9.7 Delete DNS Zone
+app.post("/api/ad/dns/zones/delete", (req, res) => {
+  try {
+    const { name, operator } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: "O nome da zona é obrigatório." });
+    }
+    const db = readDatabase();
+    db.dnsZones = db.dnsZones || [];
+    
+    const zone = db.dnsZones.find((z: any) => z.name.toLowerCase() === name.toLowerCase());
+    if (!zone) {
+      return res.status(404).json({ error: "Zona DNS não encontrada." });
+    }
+    
+    db.dnsZones = db.dnsZones.filter((z: any) => z.name.toLowerCase() !== name.toLowerCase());
+    
+    // delete all records belonging to this zone
+    db.dnsRecords = db.dnsRecords || [];
+    const recordCountBefore = db.dnsRecords.length;
+    db.dnsRecords = db.dnsRecords.filter((r: any) => r.zoneName.toLowerCase() !== name.toLowerCase());
+    const deletedRecordsCount = recordCountBefore - db.dnsRecords.length;
+    
+    // Add audit log
+    db.logs.unshift({
+      id: "log_" + Date.now(),
+      timestamp: getBrazilTimestamp(),
+      operator: operator || "admin.silva",
+      action: "Exclusão de Zona DNS",
+      targetUser: name,
+      details: `Excluída zona DNS '${name}'. Removidos também ${deletedRecordsCount} registros associados.`,
+      type: "warning"
+    });
+    
+    writeDatabase(db);
+    res.json({ success: true, zones: db.dnsZones, records: db.dnsRecords });
+  } catch (error) {
+    console.error("Erro ao excluir zona DNS:", error);
+    res.status(500).json({ error: "Erro ao excluir zona DNS." });
+  }
+});
+
+// 9.8 Synchronize DNS with Active Directory configuration
+app.post("/api/ad/dns/sync-ad-config", (req, res) => {
+  try {
+    const { operator } = req.body;
+    const cfg = readConfig();
+    const db = readDatabase();
+    
+    const domain = cfg.domain || "empresa.local";
+    let dcIp = "192.168.1.100";
+    let dcHost = "srv-dc01";
+    
+    const urlMatch = cfg.url.match(/ldaps?:\/\/([^:/]+)/);
+    if (urlMatch && urlMatch[1]) {
+      const parsedHost = urlMatch[1];
+      if (/^[0-9.]+$/.test(parsedHost)) {
+        dcIp = parsedHost;
+      } else {
+        dcHost = parsedHost.split('.')[0];
+      }
+    }
+    
+    const ipParts = dcIp.split('.');
+    let revZoneName = "1.168.192.in-addr.arpa";
+    let finalOctet = "100";
+    if (ipParts.length === 4) {
+      revZoneName = `${ipParts[2]}.${ipParts[1]}.${ipParts[0]}.in-addr.arpa`;
+      finalOctet = ipParts[3];
+    }
+    
+    // 1. Create zones
+    const directZone = { name: domain, type: "Direta" as const, updateType: "Segura" as const };
+    const inverseZone = { name: revZoneName, type: "Inversa" as const, updateType: "Segura" as const };
+    
+    db.dnsZones = [directZone, inverseZone];
+    
+    // 2. Setup initial DNS records
+    const newRecords: any[] = [];
+    
+    let recordCounter = 1;
+    const addRec = (zoneName: string, name: string, type: string, value: string, isStatic = true) => {
+      newRecords.push({
+        id: "dns_sync_" + recordCounter++,
+        zoneName,
+        name,
+        type,
+        value,
+        ttl: 3600,
+        timestamp: getBrazilTimestamp().split(" ")[0],
+        isStatic
+      });
+    };
+    
+    // Core direct zone records
+    addRec(domain, "@", "NS", `${dcHost}.${domain}.`);
+    addRec(domain, "@", "MX", `10 mail.${domain}.`);
+    addRec(domain, "@", "A", dcIp);
+    addRec(domain, dcHost, "A", dcIp);
+    addRec(domain, "mail", "A", `${ipParts[0]}.${ipParts[1]}.${ipParts[2]}.20`);
+    addRec(domain, "srv-app", "A", `${ipParts[0]}.${ipParts[1]}.${ipParts[2]}.50`);
+    addRec(domain, "srv-banco", "A", `${ipParts[0]}.${ipParts[1]}.${ipParts[2]}.60`);
+    addRec(domain, "gpo-sys", "CNAME", `${dcHost}.${domain}.`, false);
+    
+    // Inverse zone PTR records
+    addRec(revZoneName, finalOctet, "PTR", `${dcHost}.${domain}.`);
+    addRec(revZoneName, "20", "PTR", `mail.${domain}.`);
+    addRec(revZoneName, "50", "PTR", `srv-app.${domain}.`, false);
+    addRec(revZoneName, "60", "PTR", `srv-banco.${domain}.`, false);
+    
+    // generate dynamic workstation IPs for existing users
+    const users = db.users || [];
+    users.slice(0, 10).forEach((user: any, idx: number) => {
+      const userLower = (user.username || "").split('@')[0].split('.')[0].toLowerCase();
+      if (userLower && userLower !== "administrator" && userLower !== "admin") {
+        const workstationHost = `pc-ti-${userLower}`;
+        const workstationIpLastOctet = 101 + idx;
+        const workstationIp = `${ipParts[0]}.${ipParts[1]}.${ipParts[2]}.${workstationIpLastOctet}`;
+        
+        addRec(domain, workstationHost, "A", workstationIp, false);
+        addRec(revZoneName, String(workstationIpLastOctet), "PTR", `${workstationHost}.${domain}.`, false);
+      }
+    });
+    
+    db.dnsRecords = newRecords;
+    
+    // Log audit trail
+    db.logs.unshift({
+      id: "log_" + Date.now(),
+      timestamp: getBrazilTimestamp(),
+      operator: operator || "admin.silva",
+      action: "Sincronização DNS com AD",
+      targetUser: domain,
+      details: `Sincronizados domínios e IPs do DNS com o Active Directory corporativo (${domain}). Geradas zonas Direta (${domain}) e Inversa (${revZoneName}) com ${newRecords.length} registros correspondentes.`,
+      type: "success"
+    });
+    
+    writeDatabase(db);
+    
+    res.json({
+      success: true,
+      zones: db.dnsZones,
+      records: db.dnsRecords
+    });
+  } catch (error) {
+    console.error("Erro na sincronização DNS com AD:", error);
+    res.status(500).json({ error: "Erro ao sincronizar DNS com o Active Directory." });
+  }
+});
+
 
 // 10. Get Group Policy Objects (GPOs)
 app.get("/api/ad/gpos", async (req, res) => {

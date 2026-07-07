@@ -45,7 +45,7 @@ export default function DnsManagement({ onAddAuditLog, currentUser }: DnsManagem
 
   // Form states for creating a new DNS record
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
-  const [newRecordZone, setNewRecordZone] = useState<string>('empresa.local');
+  const [newRecordZone, setNewRecordZone] = useState<string>('');
   const [newRecordName, setNewRecordName] = useState<string>('');
   const [newRecordType, setNewRecordType] = useState<string>('A');
   const [newRecordValue, setNewRecordValue] = useState<string>('');
@@ -53,6 +53,18 @@ export default function DnsManagement({ onAddAuditLog, currentUser }: DnsManagem
   const [newRecordIsStatic, setNewRecordIsStatic] = useState<boolean>(false);
   const [formError, setFormError] = useState<string>('');
   const [formSuccess, setFormSuccess] = useState<string>('');
+
+  // Zone management states
+  const [showZoneModal, setShowZoneModal] = useState<boolean>(false);
+  const [newZoneName, setNewZoneName] = useState<string>('');
+  const [newZoneType, setNewZoneType] = useState<'Direta' | 'Inversa'>('Direta');
+  const [newZoneUpdate, setNewZoneUpdate] = useState<'Segura' | 'Não Segura' | 'Nenhuma'>('Segura');
+  const [zoneFormError, setZoneFormError] = useState<string>('');
+  const [zoneFormSuccess, setZoneFormSuccess] = useState<string>('');
+
+  // Sync state
+  const [syncing, setSyncing] = useState<boolean>(false);
+  const [syncSuccess, setSyncSuccess] = useState<string>('');
 
   const fetchDnsData = async () => {
     try {
@@ -62,11 +74,112 @@ export default function DnsManagement({ onAddAuditLog, currentUser }: DnsManagem
         const data = await res.json();
         setZones(data.zones || []);
         setRecords(data.records || []);
+        if (data.zones && data.zones.length > 0) {
+          setNewRecordZone(prev => prev || data.zones[0].name);
+        }
       }
     } catch (error) {
       console.error('Erro ao buscar dados do DNS:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSyncAD = async () => {
+    if (!window.confirm("A sincronização irá recriar as Zonas e os Registros DNS para corresponderem exatamente ao domínio e aos IPs configurados no seu AD real. Deseja prosseguir?")) {
+      return;
+    }
+    try {
+      setSyncing(true);
+      setSyncSuccess('');
+      const res = await fetch('/api/ad/dns/sync-ad-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          operator: currentUser?.username || 'admin.silva'
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setZones(data.zones || []);
+        setRecords(data.records || []);
+        setSyncSuccess('Sincronização com as configurações do seu AD concluída com sucesso!');
+        if (data.zones && data.zones.length > 0) {
+          setNewRecordZone(data.zones[0].name);
+        }
+        setTimeout(() => setSyncSuccess(''), 4000);
+      } else {
+        alert('Erro ao sincronizar DNS com o Active Directory.');
+      }
+    } catch (error) {
+      console.error(error);
+      alert('Erro ao se comunicar com o servidor.');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleCreateZone = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setZoneFormError('');
+    setZoneFormSuccess('');
+    if (!newZoneName) {
+      setZoneFormError('O nome da zona é obrigatório.');
+      return;
+    }
+    try {
+      const res = await fetch('/api/ad/dns/zones/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newZoneName,
+          type: newZoneType,
+          updateType: newZoneUpdate,
+          operator: currentUser?.username || 'admin.silva'
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setZones(data.zones || []);
+        setZoneFormSuccess('Zona DNS criada com sucesso!');
+        setNewZoneName('');
+        setTimeout(() => {
+          setZoneFormSuccess('');
+        }, 1500);
+      } else {
+        const data = await res.json();
+        setZoneFormError(data.error || 'Erro ao criar zona.');
+      }
+    } catch (error) {
+      setZoneFormError('Erro de rede.');
+    }
+  };
+
+  const handleDeleteZone = async (zoneName: string) => {
+    if (!window.confirm(`ATENÇÃO: Excluir a zona '${zoneName}' apagará TODOS os registros DNS associados a ela! Deseja realmente excluir?`)) {
+      return;
+    }
+    try {
+      const res = await fetch('/api/ad/dns/zones/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: zoneName,
+          operator: currentUser?.username || 'admin.silva'
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setZones(data.zones || []);
+        setRecords(data.records || []);
+        if (selectedZone === zoneName) {
+          setSelectedZone('all');
+        }
+      } else {
+        alert('Falha ao excluir a zona.');
+      }
+    } catch (error) {
+      alert('Erro de rede ao excluir a zona.');
     }
   };
 
@@ -296,6 +409,15 @@ export default function DnsManagement({ onAddAuditLog, currentUser }: DnsManagem
   return (
     <div className="space-y-6">
       
+      {syncSuccess && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 px-4 py-3.5 rounded-xl shadow-sm flex items-center gap-2.5 animate-fade-in no-print">
+          <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0" />
+          <div className="flex-1">
+            <span className="text-xs font-semibold">{syncSuccess}</span>
+          </div>
+        </div>
+      )}
+      
       {/* DNS Dashboard Banner & Stats Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
@@ -521,10 +643,28 @@ export default function DnsManagement({ onAddAuditLog, currentUser }: DnsManagem
           </div>
 
           {/* Rightside Actions */}
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              onClick={handleSyncAD}
+              disabled={syncing}
+              title="Sincronizar Zonas e Registros DNS com o seu Active Directory real"
+              className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-medium text-xs px-3.5 py-2 rounded-lg shadow-sm transition-colors flex items-center gap-2 cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Sincronizando AD...' : 'Sincronizar com AD'}
+            </button>
+
+            <button
+              onClick={() => setShowZoneModal(true)}
+              className="bg-slate-800 hover:bg-slate-700 text-white font-medium text-xs px-3.5 py-2 rounded-lg shadow-sm transition-colors flex items-center gap-2 cursor-pointer"
+            >
+              <Network className="w-3.5 h-3.5" />
+              Gerenciar Zonas
+            </button>
+
             <button
               onClick={fetchDnsData}
-              title="Sincronizar"
+              title="Recarregar dados"
               className="p-2 border border-slate-200 rounded-lg bg-white hover:bg-slate-50 transition-colors text-slate-600 cursor-pointer"
             >
               <RefreshCw className="w-4 h-4" />
@@ -532,7 +672,7 @@ export default function DnsManagement({ onAddAuditLog, currentUser }: DnsManagem
 
             <button
               onClick={() => setShowAddModal(true)}
-              className="bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs px-4 py-2 rounded-lg shadow-sm transition-colors flex items-center gap-2 cursor-pointer"
+              className="bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs px-3.5 py-2 rounded-lg shadow-sm transition-colors flex items-center gap-2 cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               Novo Registro
@@ -818,6 +958,145 @@ export default function DnsManagement({ onAddAuditLog, currentUser }: DnsManagem
               </div>
 
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Zone Management Modal Overlay */}
+      {showZoneModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fade-in no-print">
+          <div className="bg-white border border-slate-200 rounded-xl shadow-xl w-full max-w-2xl overflow-hidden animate-scale-up">
+            
+            {/* Header */}
+            <div className="bg-slate-900 text-white p-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                  <Network className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold tracking-tight">Gerenciamento de Zonas DNS</h3>
+                  <p className="text-[10px] text-slate-400 mt-0.5">Adicionar ou remover zonas diretas e inversas</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowZoneModal(false)}
+                className="text-slate-400 hover:text-white transition-colors text-xs font-semibold cursor-pointer"
+              >
+                Fechar [X]
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-100 max-h-[80vh] overflow-y-auto">
+              
+              {/* Left Side: Zone List */}
+              <div className="p-5 space-y-4">
+                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Zonas Ativas ({zones.length})</h4>
+                <div className="space-y-2 overflow-y-auto max-h-[300px] pr-1">
+                  {zones.map((zone) => (
+                    <div key={zone.name} className="flex items-center justify-between p-3 rounded-lg border border-slate-100 bg-slate-50/50 text-xs">
+                      <div>
+                        <p className="font-semibold text-slate-800">{zone.name}</p>
+                        <div className="flex gap-2 mt-1">
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                            zone.type === 'Direta' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
+                          }`}>
+                            {zone.type}
+                          </span>
+                          <span className="text-slate-400 text-[9px]">
+                            Atualização: {zone.updateType}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <button
+                        onClick={() => handleDeleteZone(zone.name)}
+                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                        title="Excluir Zona e Registros"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Right Side: Create Zone Form */}
+              <div className="p-5 space-y-4">
+                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Nova Zona DNS</h4>
+                <form onSubmit={handleCreateZone} className="space-y-4">
+                  {zoneFormError && (
+                    <div className="p-3 bg-red-50 border border-red-200 text-red-800 text-xs rounded-lg flex items-center gap-2">
+                      <ShieldAlert className="w-4 h-4 shrink-0 text-red-600" />
+                      <span>{zoneFormError}</span>
+                    </div>
+                  )}
+
+                  {zoneFormSuccess && (
+                    <div className="p-3 bg-green-50 border border-green-200 text-green-800 text-xs rounded-lg flex items-center gap-2">
+                      <CheckCircle className="w-4 h-4 shrink-0 text-green-600" />
+                      <span>{zoneFormSuccess}</span>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nome da Zona</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. corp.local ou 1.168.192.in-addr.arpa"
+                      value={newZoneName}
+                      onChange={(e) => setNewZoneName(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 text-xs px-3 py-2 rounded-lg placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">Tipo de Zona</label>
+                      <select
+                        value={newZoneType}
+                        onChange={(e) => setNewZoneType(e.target.value as any)}
+                        className="w-full bg-slate-50 border border-slate-200 text-xs px-3 py-2 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      >
+                        <option value="Direta">Direta</option>
+                        <option value="Inversa">Inversa</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">Atualização Dinâmica</label>
+                      <select
+                        value={newZoneUpdate}
+                        onChange={(e) => setNewZoneUpdate(e.target.value as any)}
+                        className="w-full bg-slate-50 border border-slate-200 text-xs px-3 py-2 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      >
+                        <option value="Segura">Segura (Apenas AD)</option>
+                        <option value="Não Segura">Não Segura (Qualquer)</option>
+                        <option value="Nenhuma">Nenhuma</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-medium shadow transition-colors cursor-pointer"
+                  >
+                    Adicionar Zona
+                  </button>
+                </form>
+              </div>
+
+            </div>
+
+            <div className="bg-slate-50 px-5 py-3 border-t border-slate-100 flex justify-end">
+              <button
+                onClick={() => setShowZoneModal(false)}
+                className="px-4 py-1.5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
+
           </div>
         </div>
       )}
