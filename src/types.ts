@@ -53,4 +53,22 @@ export interface InactivitySetting {
   notifyEmail: string;
 }
 
+export interface DNSZone {
+  name: string;
+  type: 'Direta' | 'Inversa';
+  updateType: 'Segura' | 'Não Segura' | 'Nenhuma';
+}
+
+export interface DNSRecord {
+  id: string;
+  zoneName: string;
+  name: string; // e.g., "srv-dc01", "@", "100"
+  type: 'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'PTR' | 'NS' | 'SRV';
+  value: string; // e.g., "192.168.1.100"
+  ttl: number;
+  timestamp: string; // AD aging timestamp
+  isStatic: boolean;
+}
+
+
 
