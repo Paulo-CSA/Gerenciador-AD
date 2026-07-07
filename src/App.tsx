@@ -18,8 +18,7 @@ import {
   Clock,
   Shield,
   FileCode,
-  LogOut,
-  Network
+  LogOut
 } from 'lucide-react';
 
 import { ADUser, AuditLog } from './types';
@@ -35,7 +34,6 @@ import AuditLogs from './components/AuditLogs';
 import AdConfigPanel from './components/AdConfigPanel';
 import GroupPolicies from './components/GroupPolicies';
 import Scripts from './components/Scripts';
-import DnsManagement from './components/DnsManagement';
 import Login from './components/Login';
 
 export default function App() {
@@ -345,24 +343,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* DNS Server Item */}
-          <div 
-            onClick={() => {
-              setActiveTab('dns');
-              setDashboardFilter(null);
-            }}
-            className={`p-3 rounded-md flex items-center justify-between transition-all cursor-pointer ${
-              activeTab === 'dns' 
-                ? 'active-nav text-white font-medium' 
-                : 'hover:bg-slate-800 text-slate-300'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <Network className="w-4 h-4 opacity-80" />
-              <span className="text-xs opacity-90">Servidor DNS</span>
-            </div>
-          </div>
-
           {/* Reports Item */}
           <div 
             onClick={() => setActiveTab('relatorios')}
@@ -567,19 +547,6 @@ export default function App() {
                 users={users}
                 onUpdateUser={handleUpdateUser}
                 onAddAuditLog={handleAddAuditLog}
-              />
-            </motion.div>
-          )}
-
-          {activeTab === 'dns' && (
-            <motion.div 
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.25 }}
-            >
-              <DnsManagement 
-                onAddAuditLog={handleAddAuditLog}
-                currentUser={currentUser}
               />
             </motion.div>
           )}
