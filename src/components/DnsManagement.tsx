@@ -18,7 +18,13 @@ import {
   Sparkles, 
   Check,
   Activity,
-  Info
+  Info,
+  Globe,
+  Mail,
+  Database,
+  Monitor,
+  Shield,
+  FileCode
 } from 'lucide-react';
 import { DNSZone, DNSRecord, AuditLog } from '../types';
 
@@ -34,6 +40,7 @@ export default function DnsManagement({ onAddAuditLog, currentUser }: DnsManagem
   const [selectedZone, setSelectedZone] = useState<string>('all');
   const [selectedType, setSelectedType] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [activeCategory, setActiveCategory] = useState<'all' | 'forward' | 'reverse'>('forward');
   
   // Clean operation status
   const [cleaning, setCleaning] = useState<boolean>(false);
@@ -394,6 +401,15 @@ export default function DnsManagement({ onAddAuditLog, currentUser }: DnsManagem
 
   // Filter records based on UI state
   const filteredRecords = records.filter(r => {
+    // Determine corresponding zone type ('Direta' or 'Inversa')
+    const zone = zones.find(z => z.name.toLowerCase() === r.zoneName.toLowerCase());
+    const zoneType = zone ? zone.type : 'Direta'; // Default to Direta (Forward)
+
+    const matchesCategory = 
+      activeCategory === 'all' ||
+      (activeCategory === 'forward' && zoneType === 'Direta') ||
+      (activeCategory === 'reverse' && zoneType === 'Inversa');
+
     const matchesZone = selectedZone === 'all' || r.zoneName === selectedZone;
     const matchesType = selectedType === 'all' || r.type === selectedType;
     
@@ -403,7 +419,14 @@ export default function DnsManagement({ onAddAuditLog, currentUser }: DnsManagem
       r.value.toLowerCase().includes(searchLower) ||
       r.zoneName.toLowerCase().includes(searchLower);
 
-    return matchesZone && matchesType && matchesSearch;
+    return matchesCategory && matchesZone && matchesType && matchesSearch;
+  });
+
+  // Get all unique hosts/sites from direct/forward lookup zones for the interactive visual catalog
+  const forwardSites = records.filter(r => {
+    const z = zones.find(zone => zone.name.toLowerCase() === r.zoneName.toLowerCase());
+    const isForward = !z || z.type === 'Direta';
+    return isForward && (r.type === 'A' || r.type === 'CNAME' || r.type === 'MX');
   });
 
   return (
@@ -589,9 +612,187 @@ export default function DnsManagement({ onAddAuditLog, currentUser }: DnsManagem
         </div>
       )}
 
+      {/* Visual Directory of Sites - Forward Lookup Zone */}
+      {activeCategory === 'forward' && (
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-4 no-print">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h3 className="text-xs font-mono text-blue-600 uppercase tracking-wider font-bold">Catálogo de Sites e Portais Web (Zonas de Pesquisa Direta)</h3>
+              <p className="text-xs text-slate-500 mt-1">Navegação visual e mapeamento dos principais endereços IP e FQDNs de serviços web ativos hospedados no domínio.</p>
+            </div>
+            <span className="bg-blue-100 text-blue-800 font-bold px-2.5 py-1 rounded-full text-[10px] self-start sm:self-center shrink-0">
+              {forwardSites.length} Endpoints Mapeados
+            </span>
+          </div>
+
+          {forwardSites.length === 0 ? (
+            <div className="text-center py-6 text-slate-400 text-xs">
+              Nenhum site ou serviço web cadastrado nesta zona. Sincronize com o Active Directory para gerar os mapeamentos.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {forwardSites.map((site) => {
+                const fqdn = site.name === '@' ? site.zoneName : `${site.name}.${site.zoneName}`;
+                
+                // Customize display info based on hostname
+                let icon = <Globe className="w-5 h-5 text-blue-600" />;
+                let title = "Serviço Web / Host";
+                let desc = "Ponto de acesso hospedado sob o domínio principal.";
+                const nameLower = site.name.toLowerCase();
+
+                if (nameLower === 'mail' || nameLower === 'webmail') {
+                  icon = <Mail className="w-5 h-5 text-indigo-600" />;
+                  title = "Webmail OWA / Exchange";
+                  desc = "Acesso ao correio eletrônico corporativo, calendário e OWA.";
+                } else if (nameLower === 'srv-dc01' || nameLower === 'dc01' || nameLower === 'dc') {
+                  icon = <Shield className="w-5 h-5 text-emerald-600" />;
+                  title = "Controlador de Domínio Principal";
+                  desc = "Serviço de Diretório AD DS, DNS Integrado e segurança Kerberos.";
+                } else if (nameLower === 'srv-app' || nameLower === 'app' || nameLower === 'intranet' || nameLower === 'portal') {
+                  icon = <Globe className="w-5 h-5 text-sky-600" />;
+                  title = "Portal de Aplicações Web";
+                  desc = "Hospeda a intranet corporativa, RH, e portais internos.";
+                } else if (nameLower === 'srv-banco' || nameLower === 'db' || nameLower === 'sql') {
+                  icon = <Database className="w-5 h-5 text-purple-600" />;
+                  title = "Servidor de Banco de Dados";
+                  desc = "Armazenamento estruturado SQL e serviços de dados.";
+                } else if (nameLower === 'gpo-sys' || nameLower === 'gpo') {
+                  icon = <FileCode className="w-5 h-5 text-amber-600" />;
+                  title = "Mapeamento de Políticas GPO";
+                  desc = "Ponto de distribuição central de diretivas de grupo.";
+                } else if (site.name === '@') {
+                  icon = <Globe className="w-5 h-5 text-blue-600" />;
+                  title = "Portal Corporativo (Raiz)";
+                  desc = "Site de entrada institucional configurado na raiz do domínio.";
+                } else if (nameLower.startsWith('pc-')) {
+                  icon = <Monitor className="w-5 h-5 text-slate-500" />;
+                  title = `Estação: ${site.name.toUpperCase()}`;
+                  desc = "Computador individual de usuário registrado no domínio.";
+                }
+
+                return (
+                  <div key={site.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md hover:border-blue-200 transition-all flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-start gap-3">
+                        <div className="p-2 bg-slate-50 border border-slate-100 rounded-lg shrink-0">
+                          {icon}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <span className="text-[9px] uppercase font-bold tracking-wider text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                            {site.type}
+                          </span>
+                          <h4 className="text-xs font-bold text-slate-800 truncate mt-1">{title}</h4>
+                          <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">{desc}</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 pt-3 border-t border-slate-100 space-y-1.5">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-slate-400">FQDN (Nome Completo):</span>
+                          <span className="font-mono font-medium text-slate-700 truncate select-all">{fqdn}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-slate-400">Endereço IP:</span>
+                          <span className="font-mono font-semibold text-slate-800">{site.value}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 pt-2 flex gap-2">
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(`http://${fqdn}`);
+                          alert(`Endereço http://${fqdn} copiado com sucesso!`);
+                        }}
+                        className="flex-1 py-1.5 border border-slate-200 hover:bg-slate-50 text-[10px] font-semibold text-slate-600 rounded-lg transition-colors cursor-pointer text-center"
+                      >
+                        Copiar URL
+                      </button>
+                      <button
+                        onClick={() => alert(`Enviando pacotes de ping para ${fqdn} [${site.value}]:\n✔ Resposta de ${site.value}: bytes=32 tempo<1ms TTL=128\nStatus: Online`)}
+                        className="flex-1 py-1.5 bg-blue-50 hover:bg-blue-100 text-[10px] font-bold text-blue-600 rounded-lg transition-colors cursor-pointer text-center"
+                      >
+                        Testar Conexão
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Primary Workspace: Record Table & Toolbar */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
         
+        {/* Category Tabs */}
+        <div className="flex flex-wrap border-b border-slate-200 bg-slate-50">
+          <button
+            onClick={() => {
+              setActiveCategory('forward');
+              setSelectedZone('all');
+            }}
+            className={`px-5 py-3 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
+              activeCategory === 'forward'
+                ? 'border-blue-600 text-blue-600 font-bold bg-white'
+                : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-100/50'
+            }`}
+          >
+            <Network className="w-4 h-4 text-blue-500" />
+            Zonas de Pesquisa Direta (Forward Lookup)
+            <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold ${
+              activeCategory === 'forward' ? 'bg-blue-100 text-blue-800' : 'bg-slate-200/80 text-slate-600'
+            }`}>
+              {records.filter(r => {
+                const z = zones.find(zone => zone.name.toLowerCase() === r.zoneName.toLowerCase());
+                return !z || z.type === 'Direta';
+              }).length}
+            </span>
+          </button>
+          <button
+            onClick={() => {
+              setActiveCategory('reverse');
+              setSelectedZone('all');
+            }}
+            className={`px-5 py-3 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
+              activeCategory === 'reverse'
+                ? 'border-blue-600 text-blue-600 font-bold bg-white'
+                : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-100/50'
+            }`}
+          >
+            <RefreshCw className="w-4 h-4 text-emerald-500" />
+            Zonas de Pesquisa Inversa (Reverse Lookup)
+            <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold ${
+              activeCategory === 'reverse' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200/80 text-slate-600'
+            }`}>
+              {records.filter(r => {
+                const z = zones.find(zone => zone.name.toLowerCase() === r.zoneName.toLowerCase());
+                return z && z.type === 'Inversa';
+              }).length}
+            </span>
+          </button>
+          <button
+            onClick={() => {
+              setActiveCategory('all');
+              setSelectedZone('all');
+            }}
+            className={`px-5 py-3 text-xs font-semibold border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
+              activeCategory === 'all'
+                ? 'border-blue-600 text-blue-600 font-bold bg-white'
+                : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-100/50'
+            }`}
+          >
+            <Filter className="w-4 h-4 text-slate-500" />
+            Todos os Registros
+            <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold ${
+              activeCategory === 'all' ? 'bg-slate-800 text-white' : 'bg-slate-200/80 text-slate-600'
+            }`}>
+              {records.length}
+            </span>
+          </button>
+        </div>
+
         {/* Toolbar */}
         <div className="p-5 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-50/50">
           
@@ -618,10 +819,19 @@ export default function DnsManagement({ onAddAuditLog, currentUser }: DnsManagem
               onChange={(e) => setSelectedZone(e.target.value)}
               className="bg-white border border-slate-200 text-xs px-3 py-2 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
             >
-              <option value="all">Todas as Zonas</option>
-              {zones.map((z, idx) => (
-                <option key={idx} value={z.name}>{z.name}</option>
-              ))}
+              <option value="all">
+                {activeCategory === 'forward' ? 'Todas as Zonas Diretas' : 
+                 activeCategory === 'reverse' ? 'Todas as Zonas Inversas' : 'Todas as Zonas'}
+              </option>
+              {zones
+                .filter(z => 
+                  activeCategory === 'all' || 
+                  (activeCategory === 'forward' && z.type === 'Direta') ||
+                  (activeCategory === 'reverse' && z.type === 'Inversa')
+                )
+                .map((z, idx) => (
+                  <option key={idx} value={z.name}>{z.name}</option>
+                ))}
             </select>
 
             {/* Type Filter */}
