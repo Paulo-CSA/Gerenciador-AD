@@ -855,7 +855,7 @@ app.get("/api/ad/users", async (req, res) => {
       const isAdLocked = (uac & 0x0010) !== 0 || (parseAdDateTime(user.lockoutTime) !== null); // LOCKOUT
       const expired = user.pwdLastSet === "0" || user.pwdLastSet === 0;
       const passwordNeverExpires = (uac & 0x10000) !== 0; // DONT_EXPIRE_PASSWORD
-      const userCannotChangePassword = (uac & 0x0040) !== 0 || user.sAMAccountName?.includes("service") || user.sAMAccountName?.includes("svc") || (index % 5 === 0);
+      const userCannotChangePassword = (uac & 0x0040) !== 0;
 
       let status: "Ativa" | "Bloqueada" | "Expirada" | "Desativada" = "Ativa";
       if (isAdDisabled) {
