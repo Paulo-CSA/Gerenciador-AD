@@ -23,7 +23,7 @@ import ActiveDirectory from "activedirectory2";
 import ldap from "ldapjs";
 
 const app = express();
-const PORT = 9000;
+const PORT = 3000;
 
 app.use(express.json());
 
