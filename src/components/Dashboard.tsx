@@ -200,11 +200,11 @@ export default function Dashboard({
     return days >= inactivityDays;
   });
 
-  // 6. Contas com Senha Nunca Expira (Somente Ativas)
-  const neverExpiresUsers = users.filter(u => u.status === 'Ativa' && !!u.passwordNeverExpires);
+  // 6. Contas com Senha Nunca Expira (Geral)
+  const neverExpiresUsers = users.filter(u => !!u.passwordNeverExpires);
 
-  // 7. Contas que o usuário não pode alterar a senha (Somente Ativas)
-  const cannotChangePasswordUsers = users.filter(u => u.status === 'Ativa' && !!u.userCannotChangePassword);
+  // 7. Contas que o usuário não pode alterar a senha (Geral)
+  const cannotChangePasswordUsers = users.filter(u => !!u.userCannotChangePassword);
 
   // Department Distribution data
   const departmentCounts: { [key: string]: number } = {};
@@ -353,7 +353,7 @@ export default function Dashboard({
               <h3 className="text-xs font-semibold text-slate-500 mt-0.5 truncate">Senha Sem Expiração</h3>
               <div className="flex items-baseline gap-1 mt-0.5 leading-none">
                 <span className="text-xl font-display font-bold text-slate-800">{neverExpiresUsers.length}</span>
-                <span className="text-[9px] text-blue-600 font-semibold truncate">Ativas</span>
+                <span className="text-[9px] text-blue-600 font-semibold truncate">Contas</span>
               </div>
             </div>
           </div>
@@ -372,7 +372,7 @@ export default function Dashboard({
               <h3 className="text-xs font-semibold text-slate-500 mt-0.5 truncate">Não Altera Senha</h3>
               <div className="flex items-baseline gap-1 mt-0.5 leading-none">
                 <span className="text-xl font-display font-bold text-slate-800">{cannotChangePasswordUsers.length}</span>
-                <span className="text-[9px] text-indigo-600 font-semibold truncate">Ativas</span>
+                <span className="text-[9px] text-indigo-600 font-semibold truncate">Contas</span>
               </div>
             </div>
           </div>

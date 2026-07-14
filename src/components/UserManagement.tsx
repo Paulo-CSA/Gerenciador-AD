@@ -25,7 +25,8 @@ import {
   Check,
   AlertOctagon,
   Trash2,
-  Infinity
+  Infinity,
+  Download
 } from 'lucide-react';
 import { ADUser, AuditLog } from '../types';
 
@@ -134,6 +135,52 @@ export default function UserManagement({
     onClearDashboardFilter();
   };
 
+  // CSV Export utility
+  const handleExportCSV = () => {
+    if (filteredUsers.length === 0) return;
+
+    if (onAddAuditLog) {
+      onAddAuditLog({
+        id: "log_" + Date.now(),
+        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+        operator: 'admin.silva',
+        action: "Exportação de Diretório",
+        targetUser: "Planilha CSV",
+        details: `Diretório filtrado exportado para formato CSV contendo ${filteredUsers.length} registros.`,
+        type: "info"
+      });
+    }
+
+    // Headers with BOM for Excel UTF-8 compatibility
+    const headers = ['Nome Completo', 'Logon (sAMAccountName)', 'E-mail', 'Departamento', 'Cargo', 'Status', 'Data Criacao', 'Ultimo Logon', 'Expiracao Conta'];
+    const csvRows = [headers.join(';')];
+
+    filteredUsers.forEach(u => {
+      const row = [
+        `"${u.name}"`,
+        `"${u.username}"`,
+        `"${u.email}"`,
+        `"${u.department}"`,
+        `"${u.title}"`,
+        `"${u.status}"`,
+        `"${u.createdDate}"`,
+        `"${u.lastLogon}"`,
+        `"${u.accountExpires || 'Nunca'}"`
+      ];
+      csvRows.push(row.join(';'));
+    });
+
+    const csvContent = '\uFEFF' + csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `AD_Diretorio_Exportado_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   // Unique departments list for filters
   const departments = Array.from(new Set(users.map(u => u.department)));
 
@@ -171,18 +218,18 @@ export default function UserManagement({
       } else if (dashboardFilter === 'DesativadasMes') {
         matchesDashboard = user.status === 'Desativada';
       } else if (dashboardFilter === 'NeverExpires') {
-        matchesDashboard = user.status === 'Ativa' && !!user.passwordNeverExpires;
+        matchesDashboard = !!user.passwordNeverExpires;
       } else if (dashboardFilter === 'CannotChangePassword') {
-        matchesDashboard = user.status === 'Ativa' && !!user.userCannotChangePassword;
+        matchesDashboard = !!user.userCannotChangePassword;
       }
     }
 
-    // 5. Custom property filters (Senha Nunca Expira / Não Pode Alterar Senha - Somente Ativas)
+    // 5. Custom property filters (Senha Nunca Expira / Não Pode Alterar Senha)
     let matchesCustom = true;
     if (customFilter === 'never-expires') {
-      matchesCustom = user.status === 'Ativa' && !!user.passwordNeverExpires;
+      matchesCustom = !!user.passwordNeverExpires;
     } else if (customFilter === 'cannot-change') {
-      matchesCustom = user.status === 'Ativa' && !!user.userCannotChangePassword;
+      matchesCustom = !!user.userCannotChangePassword;
     }
 
     return matchesSearch && matchesDept && matchesStatus && matchesDashboard && matchesCustom;
@@ -432,13 +479,13 @@ export default function UserManagement({
               <Infinity className={`w-4 h-4 shrink-0 ${customFilter === 'never-expires' ? 'text-blue-600' : 'text-slate-400'}`} />
               <div className="text-left">
                 <span className="font-semibold text-[11px] block leading-tight">Senha Nunca Expira</span>
-                <span className="text-[9px] text-slate-400 block">Senha vitalícia ativa</span>
+                <span className="text-[9px] text-slate-400 block">Senha vitalícia configurada</span>
               </div>
             </div>
             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
               customFilter === 'never-expires' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-600'
             }`}>
-              {users.filter(u => u.status === 'Ativa' && u.passwordNeverExpires).length}
+              {users.filter(u => u.passwordNeverExpires).length}
             </span>
           </div>
 
@@ -460,7 +507,7 @@ export default function UserManagement({
             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
               customFilter === 'cannot-change' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-600'
             }`}>
-              {users.filter(u => u.status === 'Ativa' && u.userCannotChangePassword).length}
+              {users.filter(u => u.userCannotChangePassword).length}
             </span>
           </div>
           
@@ -526,8 +573,19 @@ export default function UserManagement({
               <h3 className="font-display font-bold text-slate-800 text-sm">Diretório de Usuários ({filteredUsers.length})</h3>
               <p className="text-slate-400 text-[11px]">Gerenciamento e ações em tempo real no banco de dados do AD</p>
             </div>
-            <div className="text-[11px] text-slate-400 font-semibold bg-slate-50 border border-slate-100 px-2 py-1 rounded">
-              Contas correspondentes: {filteredUsers.length} de {users.length}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="text-[11px] text-slate-400 font-semibold bg-slate-50 border border-slate-100 px-2.5 py-1.5 rounded">
+                Contas correspondentes: {filteredUsers.length} de {users.length}
+              </div>
+              <button
+                onClick={handleExportCSV}
+                disabled={filteredUsers.length === 0}
+                className="bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 text-emerald-700 font-semibold py-1.5 px-3 rounded-xl text-[11px] flex items-center gap-1.5 transition-all cursor-pointer shadow-xs hover:shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Exportar resultado filtrado em CSV"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Exportar CSV
+              </button>
             </div>
           </div>
 
