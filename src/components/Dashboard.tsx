@@ -24,7 +24,21 @@ import {
   LayoutGrid,
   CheckCircle2,
   Infinity,
-  Lock
+  Lock,
+  Monitor,
+  Laptop,
+  Server,
+  MonitorX,
+  MonitorCheck,
+  MonitorOff,
+  PowerOff,
+  SlidersHorizontal,
+  Search,
+  Filter,
+  CheckSquare,
+  Square,
+  Check,
+  Download
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -41,7 +55,7 @@ import {
   AreaChart,
   Area
 } from 'recharts';
-import { ADUser, AuditLog, GPO } from '../types';
+import { ADUser, AuditLog, GPO, ADComputer } from '../types';
 
 function parseLocalDate(dateStr: string | null | undefined): Date | null {
   if (!dateStr || dateStr === 'Nunca' || dateStr === 'never') return null;
@@ -62,6 +76,12 @@ interface DashboardProps {
   inactivityDays: number;
   onNavigate: (tab: string, filter?: string) => void;
   adStatus?: any;
+  computers?: ADComputer[];
+  computerInactivityDays?: number;
+  onUpdateComputer?: (computer: ADComputer) => void;
+  onUpdateComputerInactivityDays?: (days: number) => void;
+  onDisableBatchComputers?: (ids: string[]) => void;
+  onAddAuditLog?: (log: AuditLog) => void;
 }
 
 export default function Dashboard({ 
@@ -69,7 +89,13 @@ export default function Dashboard({
   auditLogs, 
   inactivityDays,
   onNavigate,
-  adStatus
+  adStatus,
+  computers = [],
+  computerInactivityDays = 90,
+  onUpdateComputer,
+  onUpdateComputerInactivityDays,
+  onDisableBatchComputers,
+  onAddAuditLog
 }: DashboardProps) {
   
   // GPO state for dashboard GPO cards
@@ -206,6 +232,204 @@ export default function Dashboard({
   // 7. Contas que o usuário não pode alterar a senha (Somente Ativas)
   const cannotChangePasswordUsers = users.filter(u => u.status === 'Ativa' && !!u.userCannotChangePassword);
 
+  // --- Gestão de Computadores Obsoletos no AD (0 a 365 dias) ---
+  const [localComputerDays, setLocalComputerDays] = useState<number>(computerInactivityDays ?? 90);
+  const [computerSearch, setComputerSearch] = useState<string>('');
+  const [selectedOsFilter, setSelectedOsFilter] = useState<string>('todos');
+  const [dismissedCompIds, setDismissedCompIds] = useState<string[]>([]);
+  const [selectedCompIds, setSelectedCompIds] = useState<string[]>([]);
+  const [policySavedMsg, setPolicySavedMsg] = useState<string>('');
+
+  useEffect(() => {
+    if (computerInactivityDays !== undefined) {
+      setLocalComputerDays(computerInactivityDays);
+    }
+  }, [computerInactivityDays]);
+
+  const getComputerDaysInactive = (lastLogonStr: string) => {
+    if (!lastLogonStr || lastLogonStr === 'Nunca' || lastLogonStr === 'never') {
+      return 999;
+    }
+    const logonDate = parseLocalDate(lastLogonStr);
+    if (!logonDate || isNaN(logonDate.getTime())) {
+      return 999;
+    }
+    const currentDate = new Date();
+    const diffTime = Math.abs(currentDate.getTime() - logonDate.getTime());
+    return Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  };
+
+  const computerList = computers || [];
+  const totalComputers = computerList.length;
+  const activeComputers = computerList.filter(c => c.status === 'Ativo');
+  const disabledComputers = computerList.filter(c => c.status === 'Desativado');
+
+  // Computadores obsoletos conforme o limite da barrinha (0 a 365 dias)
+  const obsoleteComputers = useMemo(() => {
+    return computerList.filter(c => {
+      if (dismissedCompIds.includes(c.id)) return false;
+      const days = getComputerDaysInactive(c.lastLogon);
+      return days >= localComputerDays;
+    });
+  }, [computerList, localComputerDays, dismissedCompIds]);
+
+  const obsoletePercentage = totalComputers > 0 
+    ? Math.round((obsoleteComputers.length / totalComputers) * 100) 
+    : 0;
+
+  // Lista filtrada para a tabela interativa
+  const filteredObsoleteComputers = useMemo(() => {
+    return obsoleteComputers.filter(comp => {
+      const matchSearch = 
+        comp.name.toLowerCase().includes(computerSearch.toLowerCase()) ||
+        comp.dnsHostName.toLowerCase().includes(computerSearch.toLowerCase()) ||
+        comp.ou.toLowerCase().includes(computerSearch.toLowerCase()) ||
+        comp.operatingSystem.toLowerCase().includes(computerSearch.toLowerCase());
+
+      if (!matchSearch) return false;
+
+      if (selectedOsFilter === 'todos') return true;
+      if (selectedOsFilter === 'windows11') return comp.operatingSystem.toLowerCase().includes('windows 11');
+      if (selectedOsFilter === 'windows10') return comp.operatingSystem.toLowerCase().includes('windows 10');
+      if (selectedOsFilter === 'server') return comp.operatingSystem.toLowerCase().includes('server');
+      if (selectedOsFilter === 'legacy') return comp.operatingSystem.toLowerCase().includes('windows 7') || comp.operatingSystem.toLowerCase().includes('xp');
+
+      return true;
+    });
+  }, [obsoleteComputers, computerSearch, selectedOsFilter]);
+
+  const handleSaveComputerPolicy = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (onUpdateComputerInactivityDays) {
+      onUpdateComputerInactivityDays(localComputerDays);
+    }
+    setPolicySavedMsg(`Política de computadores obsoletos salva com sucesso (${localComputerDays} dias)!`);
+    setTimeout(() => setPolicySavedMsg(''), 4000);
+
+    if (onAddAuditLog) {
+      onAddAuditLog({
+        id: "log_" + Date.now(),
+        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+        operator: 'admin.silva',
+        action: 'Política de Computadores',
+        targetUser: 'Domínio AD',
+        details: `Limite de tolerância para computadores obsoletos ajustado para ${localComputerDays} dias.`,
+        type: 'info'
+      });
+    }
+  };
+
+  const handleDisableComputerAction = (comp: ADComputer) => {
+    if (onUpdateComputer) {
+      onUpdateComputer({
+        ...comp,
+        status: 'Desativado'
+      });
+    }
+    if (onAddAuditLog) {
+      onAddAuditLog({
+        id: "log_" + Date.now(),
+        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+        operator: 'admin.silva',
+        action: 'Desativação de Computador',
+        targetUser: comp.name,
+        details: `Conta de máquina ${comp.name} (${comp.operatingSystem}) desativada por inatividade prolongada (${getComputerDaysInactive(comp.lastLogon)} dias).`,
+        type: 'danger'
+      });
+    }
+  };
+
+  const handleReactivateComputerAction = (comp: ADComputer) => {
+    if (onUpdateComputer) {
+      onUpdateComputer({
+        ...comp,
+        status: 'Ativo'
+      });
+    }
+    if (onAddAuditLog) {
+      onAddAuditLog({
+        id: "log_" + Date.now(),
+        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+        operator: 'admin.silva',
+        action: 'Reativação de Computador',
+        targetUser: comp.name,
+        details: `Conta de máquina ${comp.name} reativada administrativamente no domínio.`,
+        type: 'success'
+      });
+    }
+  };
+
+  const handleDismissComputerAction = (id: string, name: string) => {
+    setDismissedCompIds(prev => [...prev, id]);
+    if (onAddAuditLog) {
+      onAddAuditLog({
+        id: "log_" + Date.now(),
+        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+        operator: 'admin.silva',
+        action: 'Alerta Dispensado',
+        targetUser: name,
+        details: `Alerta de obsolescência para o computador ${name} dispensado para esta sessão.`,
+        type: 'info'
+      });
+    }
+  };
+
+  const handleBatchDisableSelected = () => {
+    if (selectedCompIds.length === 0) return;
+    if (window.confirm(`Confirma a desativação de ${selectedCompIds.length} conta(s) de computador obsoleta(s) no Active Directory?`)) {
+      if (onDisableBatchComputers) {
+        onDisableBatchComputers(selectedCompIds);
+      }
+      setSelectedCompIds([]);
+    }
+  };
+
+  const handleExportComputersCSV = () => {
+    if (obsoleteComputers.length === 0) return;
+    const headers = ['Nome do Computador', 'Nome DNS (FQDN)', 'Sistema Operacional', 'Versao', 'Unidade Organizacional (OU)', 'Ultimo Logon', 'Dias Sem Comunicacao', 'Status', 'IP', 'Descricao'];
+    const rows = [headers.join(';')];
+    obsoleteComputers.forEach(c => {
+      const days = getComputerDaysInactive(c.lastLogon);
+      const row = [
+        `"${c.name}"`,
+        `"${c.dnsHostName}"`,
+        `"${c.operatingSystem}"`,
+        `"${c.operatingSystemVersion || ''}"`,
+        `"${c.ou}"`,
+        `"${c.lastLogon}"`,
+        `"${days}"`,
+        `"${c.status}"`,
+        `"${c.ipAddress || ''}"`,
+        `"${c.description || ''}"`
+      ];
+      rows.push(row.join(';'));
+    });
+    const csvContent = '\uFEFF' + rows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const todayStr = new Date().toISOString().split('T')[0];
+    link.setAttribute('href', url);
+    link.setAttribute('download', `AD_Computadores_Obsoletos_${localComputerDays}d_${todayStr}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedCompIds.length === filteredObsoleteComputers.length) {
+      setSelectedCompIds([]);
+    } else {
+      setSelectedCompIds(filteredObsoleteComputers.map(c => c.id));
+    }
+  };
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedCompIds(prev => 
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
+
   // Department Distribution data
   const departmentCounts: { [key: string]: number } = {};
   users.forEach(u => {
@@ -320,26 +544,52 @@ export default function Dashboard({
             </div>
           </div>
 
-          {/* KPI 4: Inatividade Prolongada */}
+          {/* KPI 4: Inatividade Prolongada Usuários */}
           <div 
             id="kpi-inactive"
-            onClick={() => onNavigate('alertas')}
+            onClick={() => onNavigate('alertas', 'usuarios')}
             className="bg-white p-3.5 rounded-xl border border-slate-100 shadow-xs hover:border-amber-200 transition-all cursor-pointer flex items-center gap-3 group h-[92px]"
           >
             <div className="bg-amber-50 text-amber-600 p-2.5 rounded-lg group-hover:bg-amber-100 transition-colors shrink-0">
               <Clock className="w-5 h-5" />
             </div>
             <div className="min-w-0 flex-1">
-              <span className="text-[9px] font-bold uppercase tracking-wider text-amber-600 block">Segurança</span>
+              <span className="text-[9px] font-bold uppercase tracking-wider text-amber-600 block">Usuários</span>
               <h3 className="text-xs font-semibold text-slate-500 mt-0.5 truncate">Inativas (+{inactivityDays}d)</h3>
               <div className="flex items-baseline gap-1 mt-0.5 leading-none">
                 <span className="text-xl font-display font-bold text-slate-800">{inactiveUsers.length}</span>
-                <span className="text-[9px] text-amber-600 font-semibold truncate">Inativas</span>
+                <span className="text-[9px] text-amber-600 font-semibold truncate">Contas</span>
               </div>
             </div>
           </div>
 
-          {/* KPI 5: Senha Nunca Expira */}
+          {/* KPI 5: Computadores Obsoletos no AD */}
+          <div 
+            id="kpi-obsolete-computers"
+            onClick={() => {
+              const el = document.getElementById('obsolete-computers-card');
+              if (el) {
+                el.scrollIntoView({ behavior: 'smooth' });
+              } else {
+                onNavigate('alertas', 'computadores');
+              }
+            }}
+            className="bg-white p-3.5 rounded-xl border border-slate-100 shadow-xs hover:border-rose-200 transition-all cursor-pointer flex items-center gap-3 group h-[92px]"
+          >
+            <div className="bg-rose-50 text-rose-600 p-2.5 rounded-lg group-hover:bg-rose-100 transition-colors shrink-0">
+              <MonitorX className="w-5 h-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <span className="text-[9px] font-bold uppercase tracking-wider text-rose-600 block">Computadores AD</span>
+              <h3 className="text-xs font-semibold text-slate-500 mt-0.5 truncate">Obsoletos (+{localComputerDays}d)</h3>
+              <div className="flex items-baseline gap-1 mt-0.5 leading-none">
+                <span className="text-xl font-display font-bold text-slate-800">{obsoleteComputers.length}</span>
+                <span className="text-[9px] text-rose-600 font-semibold truncate">Estações</span>
+              </div>
+            </div>
+          </div>
+
+          {/* KPI 6: Senha Nunca Expira */}
           <div 
             id="kpi-never-expires"
             onClick={() => onNavigate('contas', 'NeverExpires')}
@@ -358,7 +608,7 @@ export default function Dashboard({
             </div>
           </div>
 
-          {/* KPI 6: Não Altera Senha */}
+          {/* KPI 7: Não Altera Senha */}
           <div 
             id="kpi-cannot-change"
             onClick={() => onNavigate('contas', 'CannotChangePassword')}
@@ -621,6 +871,386 @@ export default function Dashboard({
 
 
         
+        </div>
+
+      </div>
+
+      {/* Central de Alertas de Computadores Obsoletos no AD (0 até 365 dias) */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-xs p-6 space-y-6" id="obsolete-computers-card">
+        
+        {/* Card Header */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0 border border-rose-100/50">
+              <MonitorX className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-display font-bold text-slate-800 text-base">
+                  Central de Alertas: Computadores Obsoletos no AD
+                </h3>
+                <span className="text-[10px] font-bold uppercase tracking-wider bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full">
+                  Políticas de Inatividade AD
+                </span>
+              </div>
+              <p className="text-slate-400 text-xs mt-0.5">
+                Identificação e mitigação de estações de trabalho e servidores sem contato recente com o controlador de domínio
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleExportComputersCSV}
+              disabled={obsoleteComputers.length === 0}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold rounded-xl border border-slate-200/60 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Baixar lista completa em formato CSV para auditoria"
+            >
+              <Download className="w-3.5 h-3.5 text-slate-500" />
+              Exportar CSV ({obsoleteComputers.length})
+            </button>
+            <button
+              onClick={() => onNavigate('alertas', 'computadores')}
+              className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold rounded-xl border border-blue-200/60 transition-colors cursor-pointer"
+            >
+              Abrir em Alertas &rarr;
+            </button>
+          </div>
+        </div>
+
+        {/* Feedback Alert Message */}
+        {policySavedMsg && (
+          <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-3 rounded-xl flex items-center gap-2 text-xs animate-fade-in">
+            <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span className="font-medium">{policySavedMsg}</span>
+          </div>
+        )}
+
+        {/* Configuration Toolbar & Slider (0 até 365 dias) */}
+        <div className="bg-slate-50/80 rounded-xl p-4 border border-slate-100 space-y-4">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            
+            {/* Range Slider Container */}
+            <div className="flex-1 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                  <SlidersHorizontal className="w-4 h-4 text-rose-500" />
+                  Limite de Inatividade para Máquinas (Período de Tolerância):
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-slate-400">Selecionado:</span>
+                  <span className="font-mono font-bold text-rose-700 bg-rose-50 px-2.5 py-0.5 rounded-md text-xs border border-rose-200/80">
+                    {localComputerDays} dias
+                  </span>
+                </div>
+              </div>
+
+              {/* Slider Input (0 a 365 dias) */}
+              <div className="space-y-1">
+                <input 
+                  type="range"
+                  min="0"
+                  max="365"
+                  step="1"
+                  value={localComputerDays}
+                  onChange={(e) => setLocalComputerDays(Number(e.target.value))}
+                  className="w-full accent-rose-600 cursor-pointer h-2 bg-slate-200 rounded-lg transition-all"
+                  id="computer-inactivity-slider"
+                />
+                <div className="flex justify-between items-center text-[10px] text-slate-400 font-mono">
+                  <span>0 dias (Sem contato recente)</span>
+                  <span className="hidden sm:inline">90 dias (Padrão corporativo)</span>
+                  <span className="hidden sm:inline">180 dias (Semestral)</span>
+                  <span>365 dias (1 ano)</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Presets & Save Button */}
+            <div className="flex flex-wrap items-center gap-1.5 lg:border-l lg:border-slate-200 lg:pl-4 shrink-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block w-full lg:w-auto">
+                Atalhos Rápidos:
+              </span>
+              {[
+                { label: '0d', val: 0 },
+                { label: '30d', val: 30 },
+                { label: '60d', val: 60 },
+                { label: '90d', val: 90 },
+                { label: '180d', val: 180 },
+                { label: '365d', val: 365 },
+              ].map(preset => (
+                <button
+                  key={preset.val}
+                  type="button"
+                  onClick={() => setLocalComputerDays(preset.val)}
+                  className={`px-2 py-1 text-[11px] font-bold rounded-lg border transition-all cursor-pointer ${
+                    localComputerDays === preset.val
+                      ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-800'
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+
+              <button
+                type="button"
+                onClick={handleSaveComputerPolicy}
+                className="ml-auto lg:ml-2 px-3 py-1 bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs rounded-lg shadow-xs transition-colors cursor-pointer"
+              >
+                Salvar Política AD
+              </button>
+            </div>
+
+          </div>
+
+          {/* Micro KPI Summary Badges */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-slate-200/50">
+            <div className="bg-white p-2.5 rounded-lg border border-slate-100/80">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Parque Total</span>
+              <span className="text-base font-bold font-display text-slate-800">{totalComputers}</span>
+              <span className="text-[10px] text-slate-400 block -mt-0.5">Máquinas registradas</span>
+            </div>
+
+            <div className="bg-white p-2.5 rounded-lg border border-rose-100 bg-rose-50/20">
+              <span className="text-[10px] font-bold text-rose-600 uppercase tracking-wider block">Obsoletos (+{localComputerDays}d)</span>
+              <span className="text-base font-bold font-display text-rose-700">{obsoleteComputers.length}</span>
+              <span className="text-[10px] text-rose-600/80 block -mt-0.5">Sem contato recente</span>
+            </div>
+
+            <div className="bg-white p-2.5 rounded-lg border border-slate-100/80">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Já Desativados</span>
+              <span className="text-base font-bold font-display text-slate-700">{disabledComputers.length}</span>
+              <span className="text-[10px] text-slate-400 block -mt-0.5">Contas suspensas</span>
+            </div>
+
+            <div className="bg-white p-2.5 rounded-lg border border-slate-100/80">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Obsolescência</span>
+              <span className="text-base font-bold font-display text-amber-600">{obsoletePercentage}%</span>
+              <span className="text-[10px] text-slate-400 block -mt-0.5">Risco de contas órfãs</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Worklist Controls (Search, Filter, Batch Action) */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          
+          <div className="flex flex-1 items-center gap-2 max-w-md">
+            <div className="relative flex-1">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input 
+                type="text"
+                placeholder="Filtrar por nome (ex: WKS, SRV, LAPTOP), OU ou SO..."
+                value={computerSearch}
+                onChange={(e) => setComputerSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+
+            <select
+              value={selectedOsFilter}
+              onChange={(e) => setSelectedOsFilter(e.target.value)}
+              className="px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-medium text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="todos">Todos os Sistemas</option>
+              <option value="windows11">Windows 11</option>
+              <option value="windows10">Windows 10</option>
+              <option value="server">Windows Server</option>
+              <option value="legacy">Legados (Windows 7/XP)</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {selectedCompIds.length > 0 && (
+              <button
+                type="button"
+                onClick={handleBatchDisableSelected}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors cursor-pointer"
+              >
+                <PowerOff className="w-3.5 h-3.5" />
+                Desativar Selecionados ({selectedCompIds.length})
+              </button>
+            )}
+            <span className="text-[11px] text-slate-400">
+              Mostrando <strong className="text-slate-700">{filteredObsoleteComputers.length}</strong> de {obsoleteComputers.length} obsoletos
+            </span>
+          </div>
+
+        </div>
+
+        {/* Obsolete Computers Table */}
+        <div className="overflow-x-auto border border-slate-100 rounded-xl">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="bg-slate-50/80 border-b border-slate-100 text-slate-500 font-semibold uppercase tracking-wider text-[10px]">
+                <th className="py-2.5 px-3 w-8">
+                  <button 
+                    type="button"
+                    onClick={toggleSelectAll} 
+                    className="cursor-pointer text-slate-400 hover:text-slate-600 flex items-center"
+                    title="Selecionar todos"
+                  >
+                    {selectedCompIds.length > 0 && selectedCompIds.length === filteredObsoleteComputers.length ? (
+                      <CheckSquare className="w-4 h-4 text-blue-600" />
+                    ) : (
+                      <Square className="w-4 h-4" />
+                    )}
+                  </button>
+                </th>
+                <th className="py-2.5 px-3">Nome da Máquina / FQDN</th>
+                <th className="py-2.5 px-3">Sistema Operacional</th>
+                <th className="py-2.5 px-3">Unidade Organizacional (OU)</th>
+                <th className="py-2.5 px-3">Último Contato AD</th>
+                <th className="py-2.5 px-3">Inatividade</th>
+                <th className="py-2.5 px-3">Status</th>
+                <th className="py-2.5 px-3 text-right">Ações de Mitigação</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50 text-slate-600">
+              {filteredObsoleteComputers.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="py-8 text-center text-slate-400 text-xs">
+                    <MonitorCheck className="w-8 h-8 mx-auto text-emerald-500 mb-2 opacity-80" />
+                    Nenhum computador obsoleto encontrado para o limite de <strong className="text-slate-700">{localComputerDays} dias</strong>.
+                  </td>
+                </tr>
+              ) : (
+                filteredObsoleteComputers.map((comp) => {
+                  const daysInactive = getComputerDaysInactive(comp.lastLogon);
+                  const isSelected = selectedCompIds.includes(comp.id);
+                  const isServer = comp.name.toLowerCase().startsWith('srv') || comp.operatingSystem.toLowerCase().includes('server');
+                  const isLaptop = comp.name.toLowerCase().includes('note') || comp.name.toLowerCase().includes('laptop');
+
+                  return (
+                    <tr 
+                      key={comp.id} 
+                      className={`hover:bg-slate-50/80 transition-colors ${isSelected ? 'bg-blue-50/30' : ''}`}
+                    >
+                      {/* Checkbox */}
+                      <td className="py-2.5 px-3">
+                        <button 
+                          type="button"
+                          onClick={() => toggleSelectOne(comp.id)} 
+                          className="cursor-pointer text-slate-400 hover:text-slate-600 flex items-center"
+                        >
+                          {isSelected ? (
+                            <CheckSquare className="w-4 h-4 text-blue-600" />
+                          ) : (
+                            <Square className="w-4 h-4" />
+                          )}
+                        </button>
+                      </td>
+
+                      {/* Computer Hostname & FQDN */}
+                      <td className="py-2.5 px-3 font-mono">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                            isServer ? 'bg-purple-50 text-purple-600' :
+                            isLaptop ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-600'
+                          }`}>
+                            {isServer ? <Server className="w-3.5 h-3.5" /> :
+                             isLaptop ? <Laptop className="w-3.5 h-3.5" /> :
+                             <Monitor className="w-3.5 h-3.5" />}
+                          </div>
+                          <div>
+                            <span className="font-bold text-slate-800 text-xs block">{comp.name}</span>
+                            <span className="text-[10px] text-slate-400 block -mt-0.5">{comp.dnsHostName}</span>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Operating System */}
+                      <td className="py-2.5 px-3">
+                        <span className="font-medium text-slate-700 block text-xs">{comp.operatingSystem}</span>
+                        {comp.operatingSystemVersion && (
+                          <span className="text-[10px] text-slate-400 block font-mono">{comp.operatingSystemVersion}</span>
+                        )}
+                      </td>
+
+                      {/* OU */}
+                      <td className="py-2.5 px-3">
+                        <span className="text-slate-600 font-medium block truncate max-w-xs text-[11px]" title={comp.ou}>
+                          {comp.ou}
+                        </span>
+                      </td>
+
+                      {/* Last Logon Date */}
+                      <td className="py-2.5 px-3 font-mono text-slate-500 text-[11px]">
+                        {comp.lastLogon}
+                      </td>
+
+                      {/* Days Inactive Badge */}
+                      <td className="py-2.5 px-3">
+                        <span className={`inline-flex items-center gap-1 font-bold px-2 py-0.5 rounded-full text-[10px] border ${
+                          daysInactive >= 365 ? 'bg-rose-100 text-rose-800 border-rose-300' :
+                          daysInactive >= 180 ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                          daysInactive >= 90 ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                          'bg-slate-100 text-slate-700 border-slate-200'
+                        }`}>
+                          <Clock className="w-3 h-3" />
+                          {daysInactive === 999 ? 'Nunca Conectou' : `${daysInactive} dias`}
+                        </span>
+                      </td>
+
+                      {/* Status */}
+                      <td className="py-2.5 px-3">
+                        <span className={`inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded-md text-[10px] ${
+                          comp.status === 'Desativado' ? 'bg-slate-100 text-slate-600' :
+                          comp.status === 'Obsoleto' ? 'bg-rose-50 text-rose-700 font-bold' :
+                          'bg-emerald-50 text-emerald-700'
+                        }`}>
+                          {comp.status}
+                        </span>
+                      </td>
+
+                      {/* Actions */}
+                      <td className="py-2.5 px-3 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {comp.status !== 'Desativado' ? (
+                            <button
+                              type="button"
+                              onClick={() => handleDisableComputerAction(comp)}
+                              className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-md font-semibold text-[10px] border border-rose-200/60 transition-colors cursor-pointer"
+                              title="Desativar conta de máquina no Active Directory"
+                            >
+                              Desativar Conta
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleReactivateComputerAction(comp)}
+                              className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-md font-semibold text-[10px] border border-emerald-200/60 transition-colors cursor-pointer"
+                              title="Reativar conta de máquina no Active Directory"
+                            >
+                              Reativar
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => handleDismissComputerAction(comp.id, comp.name)}
+                            className="px-2 py-1 bg-slate-50 hover:bg-slate-100 text-slate-500 rounded-md font-medium text-[10px] transition-colors cursor-pointer"
+                            title="Dispensar alerta temporariamente"
+                          >
+                            Dispensar
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Security & Compliance Footer Note */}
+        <div className="bg-amber-50/70 border border-amber-100/80 p-3.5 rounded-xl flex items-start gap-2.5 text-xs text-amber-900">
+          <ShieldAlert className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+          <div className="text-[11px] leading-relaxed">
+            <strong className="font-semibold block mb-0.5">Governança de TI & Conformidade ISO 27001 / CIS Benchmarks:</strong>
+            Contas de computadores obsoletas retêm senhas de máquina Kerberos antigas que podem ser exploradas em ataques de persistência e elevação de privilégios. Recomenda-se a desativação de estações sem comunicação há mais de <strong className="font-semibold">{localComputerDays} dias</strong> e posterior expurgo após 30 dias de quarentena.
+          </div>
         </div>
 
       </div>

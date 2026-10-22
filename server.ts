@@ -474,10 +474,325 @@ const initialUsers = initialUsersRaw.map((u, index) => {
   }
 ];*/
 
+function computePastDateServer(daysAgo: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getDemoComputers(domain: string = "inema.intranet") {
+  return [
+    {
+      id: 'c1',
+      name: 'SRV-DC-01',
+      dnsHostName: `SRV-DC-01.${domain}`,
+      operatingSystem: 'Windows Server 2022 Datacenter',
+      operatingSystemVersion: '21H2 (Build 20348)',
+      ou: 'OU=Domain Controllers,DC=inema,DC=intranet',
+      lastLogon: computePastDateServer(0),
+      pwdLastSet: computePastDateServer(30),
+      status: 'Ativo',
+      whenCreated: '2022-01-10',
+      description: 'Controlador de Domínio Primário (PDC Emulator / GC)',
+      ipAddress: '172.16.0.1',
+      managedBy: 'admin.silva'
+    },
+    {
+      id: 'c2',
+      name: 'SRV-APP-PROD01',
+      dnsHostName: `SRV-APP-PROD01.${domain}`,
+      operatingSystem: 'Windows Server 2019 Standard',
+      operatingSystemVersion: '1809 (Build 17763)',
+      ou: 'OU=Servidores,OU=TI',
+      lastLogon: computePastDateServer(2),
+      pwdLastSet: computePastDateServer(45),
+      status: 'Ativo',
+      whenCreated: '2023-05-15',
+      description: 'Servidor de Aplicações Internas e ERP',
+      ipAddress: '172.16.0.25',
+      managedBy: 'ana.santos'
+    },
+    {
+      id: 'c3',
+      name: 'SRV-BACKUP-01',
+      dnsHostName: `SRV-BACKUP-01.${domain}`,
+      operatingSystem: 'Windows Server 2016 Standard',
+      operatingSystemVersion: '1607 (Build 14393)',
+      ou: 'OU=Servidores,OU=TI',
+      lastLogon: computePastDateServer(4),
+      pwdLastSet: computePastDateServer(80),
+      status: 'Ativo',
+      whenCreated: '2021-08-20',
+      description: 'Servidor de Backup Centralizado Veeam',
+      ipAddress: '172.16.0.30',
+      managedBy: 'gustavo.pinheiro'
+    },
+    {
+      id: 'c4',
+      name: 'SRV-LEGACY-FILE',
+      dnsHostName: `SRV-LEGACY-FILE.${domain}`,
+      operatingSystem: 'Windows Server 2008 R2 Enterprise',
+      operatingSystemVersion: '6.1.7601 SP1',
+      ou: 'OU=Servidores,OU=TI',
+      lastLogon: computePastDateServer(285),
+      pwdLastSet: computePastDateServer(310),
+      status: 'Obsoleto',
+      whenCreated: '2017-03-12',
+      description: 'Servidor antigo de arquivos descontinuado - pendente desativação no AD',
+      ipAddress: '172.16.0.98',
+      managedBy: 'admin.silva'
+    },
+    {
+      id: 'c5',
+      name: 'WKS-TI-ANA01',
+      dnsHostName: `WKS-TI-ANA01.${domain}`,
+      operatingSystem: 'Windows 11 Pro',
+      operatingSystemVersion: '23H2 (Build 22631)',
+      ou: 'OU=Computadores,OU=TI',
+      lastLogon: computePastDateServer(1),
+      pwdLastSet: computePastDateServer(20),
+      status: 'Ativo',
+      whenCreated: '2024-03-20',
+      description: 'Estação de Trabalho - Ana Santos (Infraestrutura)',
+      ipAddress: '172.16.10.101',
+      managedBy: 'ana.santos'
+    },
+    {
+      id: 'c6',
+      name: 'WKS-TI-DEV02',
+      dnsHostName: `WKS-TI-DEV02.${domain}`,
+      operatingSystem: 'Windows 11 Enterprise',
+      operatingSystemVersion: '23H2 (Build 22631)',
+      ou: 'OU=Computadores,OU=TI',
+      lastLogon: computePastDateServer(14),
+      pwdLastSet: computePastDateServer(40),
+      status: 'Ativo',
+      whenCreated: '2024-05-10',
+      description: 'Estação Desenvolvimento Frontend',
+      ipAddress: '172.16.10.102',
+      managedBy: 'felipe.melo'
+    },
+    {
+      id: 'c7',
+      name: 'WKS-FIN-CARLOS',
+      dnsHostName: `WKS-FIN-CARLOS.${domain}`,
+      operatingSystem: 'Windows 10 Pro',
+      operatingSystemVersion: '22H2 (Build 19045)',
+      ou: 'OU=Computadores,OU=Financeiro',
+      lastLogon: computePastDateServer(5),
+      pwdLastSet: computePastDateServer(50),
+      status: 'Ativo',
+      whenCreated: '2023-01-15',
+      description: 'Estação Coordenadoria Financeira',
+      ipAddress: '172.16.20.15',
+      managedBy: 'carlos.souza'
+    },
+    {
+      id: 'c8',
+      name: 'WKS-FIN-REC02',
+      dnsHostName: `WKS-FIN-REC02.${domain}`,
+      operatingSystem: 'Windows 10 Enterprise',
+      operatingSystemVersion: '21H2',
+      ou: 'OU=Computadores,OU=Financeiro',
+      lastLogon: computePastDateServer(98),
+      pwdLastSet: computePastDateServer(120),
+      status: 'Obsoleto',
+      whenCreated: '2022-11-04',
+      description: 'Ponto fixo de recepção fiscal - colaborador transferido',
+      ipAddress: '172.16.20.44',
+      managedBy: 'carlos.souza'
+    },
+    {
+      id: 'c9',
+      name: 'WKS-RH-MARI',
+      dnsHostName: `WKS-RH-MARI.${domain}`,
+      operatingSystem: 'Windows 11 Pro',
+      operatingSystemVersion: '23H2',
+      ou: 'OU=Computadores,OU=RH',
+      lastLogon: computePastDateServer(3),
+      pwdLastSet: computePastDateServer(15),
+      status: 'Ativo',
+      whenCreated: '2024-06-12',
+      description: 'Estação Mariana Costa (Recursos Humanos)',
+      ipAddress: '172.16.30.22',
+      managedBy: 'mariana.oliveira'
+    },
+    {
+      id: 'c10',
+      name: 'WKS-RH-ESTAGIO',
+      dnsHostName: `WKS-RH-ESTAGIO.${domain}`,
+      operatingSystem: 'Windows 10 Pro',
+      operatingSystemVersion: '20H2',
+      ou: 'OU=Computadores,OU=RH',
+      lastLogon: computePastDateServer(142),
+      pwdLastSet: computePastDateServer(160),
+      status: 'Obsoleto',
+      whenCreated: '2023-03-01',
+      description: 'Mesa de estágio RH - vaga congelada há mais de 4 meses',
+      ipAddress: '172.16.30.50',
+      managedBy: 'mariana.oliveira'
+    },
+    {
+      id: 'c11',
+      name: 'NOTE-DIR-GABRIEL',
+      dnsHostName: `NOTE-DIR-GABRIEL.${domain}`,
+      operatingSystem: 'Windows 11 Pro for Workstations',
+      operatingSystemVersion: '23H2',
+      ou: 'OU=Computadores,OU=Diretoria',
+      lastLogon: computePastDateServer(1),
+      pwdLastSet: computePastDateServer(18),
+      status: 'Ativo',
+      whenCreated: '2023-08-10',
+      description: 'Notebook Corporativo Dell XPS - Diretoria Operacional',
+      ipAddress: '172.16.5.10',
+      managedBy: 'gabriel.santos'
+    },
+    {
+      id: 'c12',
+      name: 'NOTE-VENDAS-04',
+      dnsHostName: `NOTE-VENDAS-04.${domain}`,
+      operatingSystem: 'Windows 10 Pro',
+      operatingSystemVersion: '21H1',
+      ou: 'OU=Computadores,OU=Comercial',
+      lastLogon: computePastDateServer(218),
+      pwdLastSet: computePastDateServer(230),
+      status: 'Obsoleto',
+      whenCreated: '2022-04-18',
+      description: 'Notebook de campo - vendedor externo desligado',
+      ipAddress: '172.16.40.75',
+      managedBy: 'ricardo.ferreira'
+    },
+    {
+      id: 'c13',
+      name: 'WKS-COM-RICARDO',
+      dnsHostName: `WKS-COM-RICARDO.${domain}`,
+      operatingSystem: 'Windows 10 Enterprise',
+      operatingSystemVersion: '21H2',
+      ou: 'OU=Computadores,OU=Comercial',
+      lastLogon: computePastDateServer(116),
+      pwdLastSet: computePastDateServer(140),
+      status: 'Obsoleto',
+      whenCreated: '2022-09-05',
+      description: 'Estação comercial Key Account sem atividade recente',
+      ipAddress: '172.16.40.12',
+      managedBy: 'ricardo.ferreira'
+    },
+    {
+      id: 'c14',
+      name: 'WKS-OP-LOG01',
+      dnsHostName: `WKS-OP-LOG01.${domain}`,
+      operatingSystem: 'Windows 10 IoT Enterprise',
+      operatingSystemVersion: '1909',
+      ou: 'OU=Computadores,OU=Operacoes',
+      lastLogon: computePastDateServer(315),
+      pwdLastSet: computePastDateServer(330),
+      status: 'Obsoleto',
+      whenCreated: '2021-06-25',
+      description: 'Terminal de expedição galpão antigo',
+      ipAddress: '172.16.50.88',
+      managedBy: 'lucas.gomes'
+    },
+    {
+      id: 'c15',
+      name: 'WKS-DESK-ANTIGO',
+      dnsHostName: `WKS-DESK-ANTIGO.${domain}`,
+      operatingSystem: 'Windows 7 Professional',
+      operatingSystemVersion: '6.1 SP1',
+      ou: 'OU=Desativados',
+      lastLogon: computePastDateServer(362),
+      pwdLastSet: computePastDateServer(370),
+      status: 'Desativado',
+      whenCreated: '2016-11-20',
+      description: 'Computador descontinuado por obsolescência de hardware',
+      ipAddress: '172.16.99.11',
+      managedBy: 'admin.silva'
+    },
+    {
+      id: 'c16',
+      name: 'VM-TESTE-QA',
+      dnsHostName: `VM-TESTE-QA.${domain}`,
+      operatingSystem: 'Windows 10 Enterprise LTSC',
+      operatingSystemVersion: '21H2',
+      ou: 'OU=Computadores,OU=TI',
+      lastLogon: computePastDateServer(42),
+      pwdLastSet: computePastDateServer(60),
+      status: 'Ativo',
+      whenCreated: '2024-01-15',
+      description: 'Máquina Virtual de Homologação e Testes de GPO',
+      ipAddress: '172.16.10.240',
+      managedBy: 'ana.santos'
+    },
+    {
+      id: 'c17',
+      name: 'WKS-RECEP-01',
+      dnsHostName: `WKS-RECEP-01.${domain}`,
+      operatingSystem: 'Windows 10 Pro',
+      operatingSystemVersion: '22H2',
+      ou: 'OU=Computadores,OU=Geral',
+      lastLogon: computePastDateServer(7),
+      pwdLastSet: computePastDateServer(30),
+      status: 'Ativo',
+      whenCreated: '2023-09-01',
+      description: 'Computador da Recepção Principal - Controle de Catracas',
+      ipAddress: '172.16.60.10',
+      managedBy: 'admin.silva'
+    },
+    {
+      id: 'c18',
+      name: 'LAPTOP-MKT-VINIC',
+      dnsHostName: `LAPTOP-MKT-VINIC.${domain}`,
+      operatingSystem: 'Windows 11 Pro',
+      operatingSystemVersion: '22H2',
+      ou: 'OU=Computadores,OU=Marketing',
+      lastLogon: computePastDateServer(252),
+      pwdLastSet: computePastDateServer(270),
+      status: 'Obsoleto',
+      whenCreated: '2022-10-15',
+      description: 'Laptop Growth Marketing - colaborador em licença prolongada',
+      ipAddress: '172.16.70.33',
+      managedBy: 'vinicius.costa'
+    },
+    {
+      id: 'c19',
+      name: 'WKS-LEGACY-XP01',
+      dnsHostName: `WKS-LEGACY-XP01.${domain}`,
+      operatingSystem: 'Windows XP Professional',
+      operatingSystemVersion: '5.1 SP3',
+      ou: 'OU=Quarentena',
+      lastLogon: 'Nunca',
+      pwdLastSet: '2015-05-10',
+      status: 'Desativado',
+      whenCreated: '2015-05-10',
+      description: 'Máquina fabril legada desativada no domínio',
+      ipAddress: '172.16.99.99',
+      managedBy: 'admin.silva'
+    },
+    {
+      id: 'c20',
+      name: 'WKS-TREINA-01',
+      dnsHostName: `WKS-TREINA-01.${domain}`,
+      operatingSystem: 'Windows 10 Pro',
+      operatingSystemVersion: '21H2',
+      ou: 'OU=Computadores,OU=RH',
+      lastLogon: computePastDateServer(368),
+      pwdLastSet: computePastDateServer(380),
+      status: 'Obsoleto',
+      whenCreated: '2020-04-12',
+      description: 'Sala de treinamento - sem uso há mais de 1 ano',
+      ipAddress: '172.16.30.80',
+      managedBy: 'mariana.oliveira'
+    }
+  ];
+}
+
 // Ensure local database exists for simulation
 if (!fs.existsSync(DATABASE_PATH)) {
   const defaultDB = {
     users: initialUsers,
+    computers: getDemoComputers(),
     logs: []
   };
   fs.writeFileSync(DATABASE_PATH, JSON.stringify(defaultDB, null, 2), "utf8");
@@ -488,6 +803,11 @@ function readDatabase() {
     const data = fs.readFileSync(DATABASE_PATH, "utf8");
     const db = JSON.parse(data);
     let modified = false;
+
+    if (!db.computers || !Array.isArray(db.computers) || db.computers.length === 0) {
+      db.computers = getDemoComputers(readConfig().domain);
+      modified = true;
+    }
 
     if (db && Array.isArray(db.users)) {
       db.users = db.users.map((user: any, index: number) => {
@@ -528,7 +848,7 @@ function readDatabase() {
     return db;
   } catch (error) {
     console.error("Erro ao ler ad_database.json:", error);
-    return { users: initialUsers, logs: [] };
+    return { users: initialUsers, computers: getDemoComputers(), logs: [] };
   }
 }
 
@@ -1734,6 +2054,206 @@ function generateDemoGPOs() {
     }
   ];
 }
+
+// ==========================================
+// AD COMPUTERS ENDPOINTS (Real AD / Simulation)
+// ==========================================
+
+// GET /api/ad/computers
+app.get("/api/ad/computers", async (req, res) => {
+  const cfg = readConfig();
+
+  if (cfg.useDemoMode) {
+    const db = readDatabase();
+    return res.json(db.computers || []);
+  }
+
+  // Real AD query for computer objects
+  const client = ldap.createClient({ url: cfg.url, connectTimeout: 4000 });
+  client.bind(cfg.username, cfg.password, (bindErr: any) => {
+    if (bindErr) {
+      client.destroy();
+      console.warn("Falha no bind LDAP para computadores, usando fallback:", bindErr.message);
+      const db = readDatabase();
+      return res.json(db.computers || []);
+    }
+
+    const opts = {
+      filter: "(&(objectCategory=computer)(objectClass=computer))",
+      scope: "sub",
+      attributes: [
+        "cn",
+        "sAMAccountName",
+        "dNSHostName",
+        "operatingSystem",
+        "operatingSystemVersion",
+        "lastLogonTimestamp",
+        "lastLogon",
+        "pwdLastSet",
+        "whenCreated",
+        "userAccountControl",
+        "distinguishedName",
+        "description"
+      ]
+    };
+
+    client.search(cfg.baseDN, opts, (err: any, searchRes: any) => {
+      if (err) {
+        client.destroy();
+        console.warn("Falha ao buscar computadores no AD:", err.message);
+        const db = readDatabase();
+        return res.json(db.computers || []);
+      }
+
+      const computerList: any[] = [];
+      searchRes.on("searchEntry", (entry: any) => {
+        computerList.push(entry.object);
+      });
+
+      searchRes.on("error", (sErr: any) => {
+        console.warn("Erro no stream de busca de computadores:", sErr.message);
+      });
+
+      searchRes.on("end", () => {
+        client.destroy();
+        if (computerList.length === 0) {
+          const db = readDatabase();
+          return res.json(db.computers || []);
+        }
+
+        const mapped = computerList.map((comp: any, idx: number) => {
+          const rawName = comp.sAMAccountName || comp.cn || `WKS-${idx + 1}`;
+          const cleanName = rawName.endsWith("$") ? rawName.slice(0, -1) : rawName;
+          const uac = parseInt(comp.userAccountControl || "4096", 10);
+          const isCompDisabled = (uac & 0x0002) !== 0;
+
+          const actualLogon = getActualLastLogon(comp.lastLogonTimestamp, comp.lastLogon);
+          const lastLogonValue = actualLogon === "0" ? "Nunca" : safeParseDate(actualLogon, "Nunca");
+
+          let status: 'Ativo' | 'Obsoleto' | 'Desativado' = 'Ativo';
+          if (isCompDisabled) {
+            status = 'Desativado';
+          }
+
+          let guid = `c_${idx + 1}`;
+          if (comp.objectGUID) {
+            if (Buffer.isBuffer(comp.objectGUID)) {
+              guid = comp.objectGUID.toString('hex');
+            } else {
+              guid = String(comp.objectGUID);
+            }
+          }
+
+          return {
+            id: guid,
+            name: cleanName,
+            dnsHostName: comp.dNSHostName || `${cleanName}.${cfg.domain}`,
+            operatingSystem: comp.operatingSystem || "Windows Workstation",
+            operatingSystemVersion: comp.operatingSystemVersion || "",
+            ou: extractOU(comp.dn || comp.distinguishedName || "", "Computadores"),
+            lastLogon: lastLogonValue,
+            pwdLastSet: safeParseDate(comp.pwdLastSet, "Nunca"),
+            status,
+            whenCreated: safeParseDate(comp.whenCreated, "2024-01-01"),
+            description: comp.description || `Computador registrado no domínio ${cfg.domain}`
+          };
+        });
+
+        res.json(mapped);
+      });
+    });
+  });
+});
+
+// POST /api/ad/computers/update
+app.post("/api/ad/computers/update", async (req, res) => {
+  const { id, updatedComputer, operator } = req.body;
+  const cfg = readConfig();
+
+  if (cfg.useDemoMode) {
+    const db = readDatabase();
+    if (Array.isArray(db.computers)) {
+      db.computers = db.computers.map((c: any) => c.id === id ? { ...c, ...updatedComputer } : c);
+    }
+
+    db.logs.unshift({
+      id: "log_" + Date.now(),
+      timestamp: getBrazilTimestamp(),
+      operator: operator || "admin.silva",
+      action: updatedComputer.status === 'Desativado' ? "Desativação de Computador" : "Modificação de Computador",
+      targetUser: updatedComputer.name || id,
+      details: `Conta de máquina ${updatedComputer.name} atualizada no AD. Status: ${updatedComputer.status}. Motivo: Gestão de Ativos Obsoletos.`,
+      type: updatedComputer.status === 'Desativado' ? "danger" : "info"
+    });
+
+    writeDatabase(db);
+    return res.json({ success: true, computer: updatedComputer });
+  }
+
+  // Real AD modification
+  const client = ldap.createClient({ url: cfg.url, connectTimeout: 4000 });
+  client.bind(cfg.username, cfg.password, (bindErr: any) => {
+    if (bindErr) {
+      client.destroy();
+      return res.status(500).json({ error: "Erro de bind com AD: " + bindErr.message });
+    }
+
+    const computerDN = updatedComputer.ou?.includes("DC=") 
+      ? updatedComputer.ou 
+      : `CN=${updatedComputer.name},CN=Computers,${cfg.baseDN}`;
+
+    // Disable computer account: WORKSTATION_TRUST_ACCOUNT (4096) + ACCOUNTDISABLE (2) = 4098
+    const uac = updatedComputer.status === 'Desativado' ? "4098" : "4096";
+
+    const modifications = [
+      new ldap.Change({
+        operation: "replace",
+        modification: {
+          userAccountControl: uac,
+          description: updatedComputer.description || "Gerenciado via Console AD"
+        }
+      })
+    ];
+
+    client.modify(computerDN, modifications, (modErr: any) => {
+      client.destroy();
+      if (modErr) {
+        console.warn("Aviso ao modificar computador no AD:", modErr.message);
+      }
+      res.json({ success: true, computer: updatedComputer });
+    });
+  });
+});
+
+// POST /api/ad/computers/disable-batch
+app.post("/api/ad/computers/disable-batch", async (req, res) => {
+  const { ids, operator } = req.body;
+  const db = readDatabase();
+  const idSet = new Set(ids || []);
+
+  if (Array.isArray(db.computers)) {
+    db.computers = db.computers.map((c: any) => {
+      if (idSet.has(c.id)) {
+        return { ...c, status: 'Desativado' };
+      }
+      return c;
+    });
+  }
+
+  db.logs.unshift({
+    id: "log_" + Date.now(),
+    timestamp: getBrazilTimestamp(),
+    operator: operator || "admin.silva",
+    action: "Desativação em Lote de Computadores",
+    targetUser: `${ids.length} computadores`,
+    details: `${ids.length} computadores obsoletos foram desativados em lote pela política de inatividade do AD.`,
+    type: "warning"
+  });
+
+  writeDatabase(db);
+  return res.json({ success: true, count: ids.length });
+});
+
 
 
 // --- Vite Middleware / Production Server Config ---

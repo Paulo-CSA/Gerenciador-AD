@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { ADUser, AuditLog } from './types';
+import { ADUser, AuditLog, ADComputer } from './types';
 
 // O ano atual do sistema é 2026. Data de referência: 2026-06-26.
 export const initialUsers: ADUser[] = [
@@ -335,3 +335,317 @@ export const initialAuditLogs: AuditLog[] = [
     type: 'success'
   }
 ];
+
+// Helper para calcular datas relativas de logon de computadores no AD
+function computePastDate(daysAgo: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export const initialComputers: ADComputer[] = [
+  {
+    id: 'c1',
+    name: 'SRV-DC-01',
+    dnsHostName: 'SRV-DC-01.inema.intranet',
+    operatingSystem: 'Windows Server 2022 Datacenter',
+    operatingSystemVersion: '21H2 (Build 20348)',
+    ou: 'OU=Domain Controllers,DC=inema,DC=intranet',
+    lastLogon: computePastDate(0),
+    pwdLastSet: computePastDate(30),
+    status: 'Ativo',
+    whenCreated: '2022-01-10',
+    description: 'Controlador de Domínio Primário (PDC Emulator / GC)',
+    ipAddress: '172.16.0.1',
+    managedBy: 'admin.silva'
+  },
+  {
+    id: 'c2',
+    name: 'SRV-APP-PROD01',
+    dnsHostName: 'SRV-APP-PROD01.inema.intranet',
+    operatingSystem: 'Windows Server 2019 Standard',
+    operatingSystemVersion: '1809 (Build 17763)',
+    ou: 'OU=Servidores,OU=TI,DC=inema,DC=intranet',
+    lastLogon: computePastDate(2),
+    pwdLastSet: computePastDate(45),
+    status: 'Ativo',
+    whenCreated: '2023-05-15',
+    description: 'Servidor de Aplicações Internas e ERP',
+    ipAddress: '172.16.0.25',
+    managedBy: 'ana.santos'
+  },
+  {
+    id: 'c3',
+    name: 'SRV-BACKUP-01',
+    dnsHostName: 'SRV-BACKUP-01.inema.intranet',
+    operatingSystem: 'Windows Server 2016 Standard',
+    operatingSystemVersion: '1607 (Build 14393)',
+    ou: 'OU=Servidores,OU=TI,DC=inema,DC=intranet',
+    lastLogon: computePastDate(4),
+    pwdLastSet: computePastDate(80),
+    status: 'Ativo',
+    whenCreated: '2021-08-20',
+    description: 'Servidor de Backup Centralizado Veeam',
+    ipAddress: '172.16.0.30',
+    managedBy: 'gustavo.pinheiro'
+  },
+  {
+    id: 'c4',
+    name: 'SRV-LEGACY-FILE',
+    dnsHostName: 'SRV-LEGACY-FILE.inema.intranet',
+    operatingSystem: 'Windows Server 2008 R2 Enterprise',
+    operatingSystemVersion: '6.1.7601 SP1',
+    ou: 'OU=Servidores,OU=TI,DC=inema,DC=intranet',
+    lastLogon: computePastDate(285),
+    pwdLastSet: computePastDate(310),
+    status: 'Obsoleto',
+    whenCreated: '2017-03-12',
+    description: 'Servidor antigo de arquivos descontinuado - pendente desativação no AD',
+    ipAddress: '172.16.0.98',
+    managedBy: 'admin.silva'
+  },
+  {
+    id: 'c5',
+    name: 'WKS-TI-ANA01',
+    dnsHostName: 'WKS-TI-ANA01.inema.intranet',
+    operatingSystem: 'Windows 11 Pro',
+    operatingSystemVersion: '23H2 (Build 22631)',
+    ou: 'OU=Computadores,OU=TI,DC=inema,DC=intranet',
+    lastLogon: computePastDate(1),
+    pwdLastSet: computePastDate(20),
+    status: 'Ativo',
+    whenCreated: '2024-03-20',
+    description: 'Estação de Trabalho - Ana Santos (Infraestrutura)',
+    ipAddress: '172.16.10.101',
+    managedBy: 'ana.santos'
+  },
+  {
+    id: 'c6',
+    name: 'WKS-TI-DEV02',
+    dnsHostName: 'WKS-TI-DEV02.inema.intranet',
+    operatingSystem: 'Windows 11 Enterprise',
+    operatingSystemVersion: '23H2 (Build 22631)',
+    ou: 'OU=Computadores,OU=TI,DC=inema,DC=intranet',
+    lastLogon: computePastDate(14),
+    pwdLastSet: computePastDate(40),
+    status: 'Ativo',
+    whenCreated: '2024-05-10',
+    description: 'Estação Desenvolvimento Frontend',
+    ipAddress: '172.16.10.102',
+    managedBy: 'felipe.melo'
+  },
+  {
+    id: 'c7',
+    name: 'WKS-FIN-CARLOS',
+    dnsHostName: 'WKS-FIN-CARLOS.inema.intranet',
+    operatingSystem: 'Windows 10 Pro',
+    operatingSystemVersion: '22H2 (Build 19045)',
+    ou: 'OU=Computadores,OU=Financeiro,DC=inema,DC=intranet',
+    lastLogon: computePastDate(5),
+    pwdLastSet: computePastDate(50),
+    status: 'Ativo',
+    whenCreated: '2023-01-15',
+    description: 'Estação Coordenadoria Financeira',
+    ipAddress: '172.16.20.15',
+    managedBy: 'carlos.souza'
+  },
+  {
+    id: 'c8',
+    name: 'WKS-FIN-REC02',
+    dnsHostName: 'WKS-FIN-REC02.inema.intranet',
+    operatingSystem: 'Windows 10 Enterprise',
+    operatingSystemVersion: '21H2',
+    ou: 'OU=Computadores,OU=Financeiro,DC=inema,DC=intranet',
+    lastLogon: computePastDate(98),
+    pwdLastSet: computePastDate(120),
+    status: 'Obsoleto',
+    whenCreated: '2022-11-04',
+    description: 'Ponto fixo de recepção fiscal - colaborador transferido',
+    ipAddress: '172.16.20.44',
+    managedBy: 'carlos.souza'
+  },
+  {
+    id: 'c9',
+    name: 'WKS-RH-MARI',
+    dnsHostName: 'WKS-RH-MARI.inema.intranet',
+    operatingSystem: 'Windows 11 Pro',
+    operatingSystemVersion: '23H2',
+    ou: 'OU=Computadores,OU=RH,DC=inema,DC=intranet',
+    lastLogon: computePastDate(3),
+    pwdLastSet: computePastDate(15),
+    status: 'Ativo',
+    whenCreated: '2024-06-12',
+    description: 'Estação Mariana Costa (Recursos Humanos)',
+    ipAddress: '172.16.30.22',
+    managedBy: 'mariana.oliveira'
+  },
+  {
+    id: 'c10',
+    name: 'WKS-RH-ESTAGIO',
+    dnsHostName: 'WKS-RH-ESTAGIO.inema.intranet',
+    operatingSystem: 'Windows 10 Pro',
+    operatingSystemVersion: '20H2',
+    ou: 'OU=Computadores,OU=RH,DC=inema,DC=intranet',
+    lastLogon: computePastDate(142),
+    pwdLastSet: computePastDate(160),
+    status: 'Obsoleto',
+    whenCreated: '2023-03-01',
+    description: 'Mesa de estágio RH - vaga congelada há mais de 4 meses',
+    ipAddress: '172.16.30.50',
+    managedBy: 'mariana.oliveira'
+  },
+  {
+    id: 'c11',
+    name: 'NOTE-DIR-GABRIEL',
+    dnsHostName: 'NOTE-DIR-GABRIEL.inema.intranet',
+    operatingSystem: 'Windows 11 Pro for Workstations',
+    operatingSystemVersion: '23H2',
+    ou: 'OU=Computadores,OU=Diretoria,DC=inema,DC=intranet',
+    lastLogon: computePastDate(1),
+    pwdLastSet: computePastDate(18),
+    status: 'Ativo',
+    whenCreated: '2023-08-10',
+    description: 'Notebook Corporativo Dell XPS - Diretoria Operacional',
+    ipAddress: '172.16.5.10',
+    managedBy: 'gabriel.santos'
+  },
+  {
+    id: 'c12',
+    name: 'NOTE-VENDAS-04',
+    dnsHostName: 'NOTE-VENDAS-04.inema.intranet',
+    operatingSystem: 'Windows 10 Pro',
+    operatingSystemVersion: '21H1',
+    ou: 'OU=Computadores,OU=Comercial,DC=inema,DC=intranet',
+    lastLogon: computePastDate(218),
+    pwdLastSet: computePastDate(230),
+    status: 'Obsoleto',
+    whenCreated: '2022-04-18',
+    description: 'Notebook de campo - vendedor externo desligado',
+    ipAddress: '172.16.40.75',
+    managedBy: 'ricardo.ferreira'
+  },
+  {
+    id: 'c13',
+    name: 'WKS-COM-RICARDO',
+    dnsHostName: 'WKS-COM-RICARDO.inema.intranet',
+    operatingSystem: 'Windows 10 Enterprise',
+    operatingSystemVersion: '21H2',
+    ou: 'OU=Computadores,OU=Comercial,DC=inema,DC=intranet',
+    lastLogon: computePastDate(116),
+    pwdLastSet: computePastDate(140),
+    status: 'Obsoleto',
+    whenCreated: '2022-09-05',
+    description: 'Estação comercial Key Account sem atividade recente',
+    ipAddress: '172.16.40.12',
+    managedBy: 'ricardo.ferreira'
+  },
+  {
+    id: 'c14',
+    name: 'WKS-OP-LOG01',
+    dnsHostName: 'WKS-OP-LOG01.inema.intranet',
+    operatingSystem: 'Windows 10 IoT Enterprise',
+    operatingSystemVersion: '1909',
+    ou: 'OU=Computadores,OU=Operacoes,DC=inema,DC=intranet',
+    lastLogon: computePastDate(315),
+    pwdLastSet: computePastDate(330),
+    status: 'Obsoleto',
+    whenCreated: '2021-06-25',
+    description: 'Terminal de expedição galpão antigo',
+    ipAddress: '172.16.50.88',
+    managedBy: 'lucas.gomes'
+  },
+  {
+    id: 'c15',
+    name: 'WKS-DESK-ANTIGO',
+    dnsHostName: 'WKS-DESK-ANTIGO.inema.intranet',
+    operatingSystem: 'Windows 7 Professional',
+    operatingSystemVersion: '6.1 SP1',
+    ou: 'OU=Desativados,DC=inema,DC=intranet',
+    lastLogon: computePastDate(362),
+    pwdLastSet: computePastDate(370),
+    status: 'Desativado',
+    whenCreated: '2016-11-20',
+    description: 'Computador descontinuado por obsolescência de hardware',
+    ipAddress: '172.16.99.11',
+    managedBy: 'admin.silva'
+  },
+  {
+    id: 'c16',
+    name: 'VM-TESTE-QA',
+    dnsHostName: 'VM-TESTE-QA.inema.intranet',
+    operatingSystem: 'Windows 10 Enterprise LTSC',
+    operatingSystemVersion: '21H2',
+    ou: 'OU=Computadores,OU=TI,DC=inema,DC=intranet',
+    lastLogon: computePastDate(42),
+    pwdLastSet: computePastDate(60),
+    status: 'Ativo',
+    whenCreated: '2024-01-15',
+    description: 'Máquina Virtual de Homologação e Testes de GPO',
+    ipAddress: '172.16.10.240',
+    managedBy: 'ana.santos'
+  },
+  {
+    id: 'c17',
+    name: 'WKS-RECEP-01',
+    dnsHostName: 'WKS-RECEP-01.inema.intranet',
+    operatingSystem: 'Windows 10 Pro',
+    operatingSystemVersion: '22H2',
+    ou: 'OU=Computadores,OU=Geral,DC=inema,DC=intranet',
+    lastLogon: computePastDate(7),
+    pwdLastSet: computePastDate(30),
+    status: 'Ativo',
+    whenCreated: '2023-09-01',
+    description: 'Computador da Recepção Principal - Controle de Catracas',
+    ipAddress: '172.16.60.10',
+    managedBy: 'admin.silva'
+  },
+  {
+    id: 'c18',
+    name: 'LAPTOP-MKT-VINIC',
+    dnsHostName: 'LAPTOP-MKT-VINIC.inema.intranet',
+    operatingSystem: 'Windows 11 Pro',
+    operatingSystemVersion: '22H2',
+    ou: 'OU=Computadores,OU=Marketing,DC=inema,DC=intranet',
+    lastLogon: computePastDate(252),
+    pwdLastSet: computePastDate(270),
+    status: 'Obsoleto',
+    whenCreated: '2022-10-15',
+    description: 'Laptop Growth Marketing - colaborador em licença prolongada',
+    ipAddress: '172.16.70.33',
+    managedBy: 'vinicius.costa'
+  },
+  {
+    id: 'c19',
+    name: 'WKS-LEGACY-XP01',
+    dnsHostName: 'WKS-LEGACY-XP01.inema.intranet',
+    operatingSystem: 'Windows XP Professional',
+    operatingSystemVersion: '5.1 SP3',
+    ou: 'OU=Quarentena,DC=inema,DC=intranet',
+    lastLogon: 'Nunca',
+    pwdLastSet: '2015-05-10',
+    status: 'Desativado',
+    whenCreated: '2015-05-10',
+    description: 'Máquina fabril legada desativada no domínio',
+    ipAddress: '172.16.99.99',
+    managedBy: 'admin.silva'
+  },
+  {
+    id: 'c20',
+    name: 'WKS-TREINA-01',
+    dnsHostName: 'WKS-TREINA-01.inema.intranet',
+    operatingSystem: 'Windows 10 Pro',
+    operatingSystemVersion: '21H2',
+    ou: 'OU=Computadores,OU=RH,DC=inema,DC=intranet',
+    lastLogon: computePastDate(368),
+    pwdLastSet: computePastDate(380),
+    status: 'Obsoleto',
+    whenCreated: '2020-04-12',
+    description: 'Sala de treinamento - sem uso há mais de 1 ano',
+    ipAddress: '172.16.30.80',
+    managedBy: 'mariana.oliveira'
+  }
+];
+

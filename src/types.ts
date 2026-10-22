@@ -53,4 +53,27 @@ export interface InactivitySetting {
   notifyEmail: string;
 }
 
+export interface ADComputer {
+  id: string;
+  name: string; // e.g., "WKS-FIN-01"
+  dnsHostName: string; // e.g., "WKS-FIN-01.empresa.local"
+  operatingSystem: string; // e.g., "Windows 11 Enterprise"
+  operatingSystemVersion?: string; // e.g., "23H2"
+  ou: string; // Unidade Organizacional (e.g., OU=Computadores,OU=TI,DC=empresa,DC=local)
+  lastLogon: string; // Último contato / logon no domínio (e.g., "2026-06-20" ou "Nunca")
+  pwdLastSet: string;
+  status: 'Ativo' | 'Obsoleto' | 'Desativado';
+  whenCreated: string;
+  description?: string;
+  ipAddress?: string;
+  managedBy?: string;
+}
+
+export interface ComputerInactivitySetting {
+  thresholdDays: number; // 0 a 365 dias
+  autoAction: 'none' | 'alert' | 'disable';
+  notifyEmail: string;
+}
+
+
 

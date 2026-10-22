@@ -21,7 +21,7 @@ import {
   LogOut
 } from 'lucide-react';
 
-import { ADUser, AuditLog } from './types';
+import { ADUser, AuditLog, ADComputer } from './types';
 import { initialUsers, initialAuditLogs } from './mockData';
 
 // Component Imports
@@ -51,9 +51,14 @@ export default function App() {
 
   // Core AD States (Backend-Driven)
   const [users, setUsers] = useState<ADUser[]>([]);
+  const [computers, setComputers] = useState<ADComputer[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [inactivityDays, setInactivityDays] = useState<number>(() => {
     const saved = localStorage.getItem('ad_inactivity_threshold');
+    return saved ? Number(saved) : 90;
+  });
+  const [computerInactivityDays, setComputerInactivityDays] = useState<number>(() => {
+    const saved = localStorage.getItem('ad_computer_inactivity_threshold');
     return saved ? Number(saved) : 90;
   });
   const [loading, setLoading] = useState<boolean>(true);
@@ -65,10 +70,11 @@ export default function App() {
   const refreshData = async () => {
     try {
       setLoading(true);
-      const [usersRes, logsRes, statusRes] = await Promise.all([
+      const [usersRes, logsRes, statusRes, computersRes] = await Promise.all([
         fetch('/api/ad/users'),
         fetch('/api/ad/logs'),
-        fetch('/api/ad/status')
+        fetch('/api/ad/status'),
+        fetch('/api/ad/computers')
       ]);
 
       if (usersRes.ok) {
@@ -76,6 +82,11 @@ export default function App() {
         if (Array.isArray(usersData)) setUsers(usersData);
       }
       
+      if (computersRes.ok) {
+        const computersData = await computersRes.json();
+        if (Array.isArray(computersData)) setComputers(computersData);
+      }
+
       if (logsRes.ok) {
         const logsData = await logsRes.json();
         if (Array.isArray(logsData)) setAuditLogs(logsData);
@@ -105,11 +116,19 @@ export default function App() {
     if (savedThreshold) {
       setInactivityDays(Number(savedThreshold));
     }
+    const savedCompThreshold = localStorage.getItem('ad_computer_inactivity_threshold');
+    if (savedCompThreshold) {
+      setComputerInactivityDays(Number(savedCompThreshold));
+    }
   }, []);
 
   useEffect(() => {
     localStorage.setItem('ad_inactivity_threshold', inactivityDays.toString());
   }, [inactivityDays]);
+
+  useEffect(() => {
+    localStorage.setItem('ad_computer_inactivity_threshold', computerInactivityDays.toString());
+  }, [computerInactivityDays]);
 
   const handleUpdateInactivityDays = async (days: number) => {
     setInactivityDays(days);
@@ -122,6 +141,44 @@ export default function App() {
       });
     } catch (err) {
       console.error('Erro ao atualizar limite de inatividade no servidor:', err);
+    }
+  };
+
+  const handleUpdateComputerInactivityDays = (days: number) => {
+    setComputerInactivityDays(days);
+    localStorage.setItem('ad_computer_inactivity_threshold', days.toString());
+  };
+
+  const handleUpdateComputer = async (updatedComputer: ADComputer) => {
+    try {
+      await fetch('/api/ad/computers/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: updatedComputer.id,
+          updatedComputer,
+          operator: currentUser ? currentUser.username : 'admin.silva'
+        })
+      });
+      refreshData();
+    } catch (err) {
+      console.error('Erro ao atualizar computador no AD:', err);
+    }
+  };
+
+  const handleDisableBatchComputers = async (ids: string[]) => {
+    try {
+      await fetch('/api/ad/computers/disable-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ids,
+          operator: currentUser ? currentUser.username : 'admin.silva'
+        })
+      });
+      refreshData();
+    } catch (err) {
+      console.error('Erro ao desativar computadores em lote no AD:', err);
     }
   };
 
@@ -217,11 +274,32 @@ export default function App() {
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   };
 
-  const activeAlertsCount = users.filter(u => {
+  const getComputerDaysInactive = (lastLogonStr: string) => {
+    if (!lastLogonStr || lastLogonStr === 'Nunca') {
+      return 999;
+    }
+    const logonDate = new Date(lastLogonStr);
+    if (isNaN(logonDate.getTime())) {
+      return 999;
+    }
+    const currentDate = new Date();
+    const diffTime = Math.abs(currentDate.getTime() - logonDate.getTime());
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  };
+
+  const activeUserAlerts = users.filter(u => {
     if (u.status !== 'Ativa') return false;
     const days = getDaysInactive(u.lastLogon);
     return days >= inactivityDays;
   }).length;
+
+  const activeComputerAlerts = computers.filter(c => {
+    if (c.status === 'Desativado') return false;
+    const days = getComputerDaysInactive(c.lastLogon);
+    return days >= computerInactivityDays;
+  }).length;
+
+  const activeAlertsCount = activeUserAlerts + activeComputerAlerts;
 
   const blockedUsersCount = users.filter(u => u.status === 'Bloqueada').length;
 
@@ -491,10 +569,16 @@ export default function App() {
             >
               <Dashboard 
                 users={users} 
+                computers={computers}
                 auditLogs={auditLogs} 
                 inactivityDays={inactivityDays}
+                computerInactivityDays={computerInactivityDays}
                 onNavigate={handleNavigateFromDashboard}
                 adStatus={adStatus}
+                onUpdateComputer={handleUpdateComputer}
+                onUpdateComputerInactivityDays={handleUpdateComputerInactivityDays}
+                onDisableBatchComputers={handleDisableBatchComputers}
+                onAddAuditLog={handleAddAuditLog}
               />
             </motion.div>
           )}
@@ -576,6 +660,12 @@ export default function App() {
                 onAddAuditLog={handleAddAuditLog}
                 inactivityDays={inactivityDays}
                 onUpdateInactivityDays={handleUpdateInactivityDays}
+                computers={computers}
+                computerInactivityDays={computerInactivityDays}
+                onUpdateComputer={handleUpdateComputer}
+                onUpdateComputerInactivityDays={handleUpdateComputerInactivityDays}
+                onDisableBatchComputers={handleDisableBatchComputers}
+                initialSubTab={dashboardFilter === 'computadores' ? 'computadores' : 'usuarios'}
               />
             </motion.div>
           )}
