@@ -58,15 +58,36 @@ import {
 import { ADUser, AuditLog, GPO, ADComputer } from '../types';
 
 function parseLocalDate(dateStr: string | null | undefined): Date | null {
-  if (!dateStr || dateStr === 'Nunca' || dateStr === 'never') return null;
-  const parts = dateStr.split(' ')[0].split('-');
-  if (parts.length === 3) {
-    const year = parseInt(parts[0], 10);
-    const month = parseInt(parts[1], 10) - 1;
-    const day = parseInt(parts[2], 10);
+  if (!dateStr || dateStr === 'Nunca' || dateStr === 'never' || dateStr === '0') return null;
+  const cleanStr = String(dateStr).trim();
+  const datePart = cleanStr.split(' ')[0].split('T')[0];
+  
+  const ymdParts = datePart.split('-');
+  if (ymdParts.length === 3 && ymdParts[0].length === 4) {
+    const year = parseInt(ymdParts[0], 10);
+    const month = parseInt(ymdParts[1], 10) - 1;
+    const day = parseInt(ymdParts[2], 10);
     return new Date(year, month, day);
   }
-  const d = new Date(dateStr);
+
+  const slashParts = datePart.split('/');
+  if (slashParts.length === 3) {
+    if (slashParts[2].length === 4) {
+      // DD/MM/YYYY
+      const day = parseInt(slashParts[0], 10);
+      const month = parseInt(slashParts[1], 10) - 1;
+      const year = parseInt(slashParts[2], 10);
+      return new Date(year, month, day);
+    } else if (slashParts[0].length === 4) {
+      // YYYY/MM/DD
+      const year = parseInt(slashParts[0], 10);
+      const month = parseInt(slashParts[1], 10) - 1;
+      const day = parseInt(slashParts[2], 10);
+      return new Date(year, month, day);
+    }
+  }
+
+  const d = new Date(cleanStr);
   return isNaN(d.getTime()) ? null : d;
 }
 
@@ -236,6 +257,7 @@ export default function Dashboard({
   const [localComputerDays, setLocalComputerDays] = useState<number>(computerInactivityDays ?? 90);
   const [computerSearch, setComputerSearch] = useState<string>('');
   const [selectedOsFilter, setSelectedOsFilter] = useState<string>('todos');
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('todos');
   const [dismissedCompIds, setDismissedCompIds] = useState<string[]>([]);
   const [selectedCompIds, setSelectedCompIds] = useState<string[]>([]);
   const [policySavedMsg, setPolicySavedMsg] = useState<string>('');
@@ -247,7 +269,7 @@ export default function Dashboard({
   }, [computerInactivityDays]);
 
   const getComputerDaysInactive = (lastLogonStr: string) => {
-    if (!lastLogonStr || lastLogonStr === 'Nunca' || lastLogonStr === 'never') {
+    if (!lastLogonStr || lastLogonStr === 'Nunca' || lastLogonStr === 'never' || lastLogonStr === '0') {
       return 999;
     }
     const logonDate = parseLocalDate(lastLogonStr);
@@ -255,7 +277,8 @@ export default function Dashboard({
       return 999;
     }
     const currentDate = new Date();
-    const diffTime = Math.abs(currentDate.getTime() - logonDate.getTime());
+    const diffTime = currentDate.getTime() - logonDate.getTime();
+    if (diffTime < 0) return 0;
     return Math.floor(diffTime / (1000 * 60 * 60 * 24));
   };
 
@@ -273,6 +296,14 @@ export default function Dashboard({
     });
   }, [computerList, localComputerDays, dismissedCompIds]);
 
+  const activeObsoleteComputers = useMemo(() => {
+    return obsoleteComputers.filter(c => c.status !== 'Desativado');
+  }, [obsoleteComputers]);
+
+  const disabledObsoleteComputers = useMemo(() => {
+    return obsoleteComputers.filter(c => c.status === 'Desativado');
+  }, [obsoleteComputers]);
+
   const obsoletePercentage = totalComputers > 0 
     ? Math.round((obsoleteComputers.length / totalComputers) * 100) 
     : 0;
@@ -288,6 +319,11 @@ export default function Dashboard({
 
       if (!matchSearch) return false;
 
+      // Status Filter
+      if (selectedStatusFilter === 'ativos' && comp.status === 'Desativado') return false;
+      if (selectedStatusFilter === 'desativados' && comp.status !== 'Desativado') return false;
+
+      // OS Filter
       if (selectedOsFilter === 'todos') return true;
       if (selectedOsFilter === 'windows11') return comp.operatingSystem.toLowerCase().includes('windows 11');
       if (selectedOsFilter === 'windows10') return comp.operatingSystem.toLowerCase().includes('windows 10');
@@ -296,15 +332,15 @@ export default function Dashboard({
 
       return true;
     });
-  }, [obsoleteComputers, computerSearch, selectedOsFilter]);
+  }, [obsoleteComputers, computerSearch, selectedOsFilter, selectedStatusFilter]);
 
-  const handleSaveComputerPolicy = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSaveComputerPolicy = (e?: React.FormEvent | React.MouseEvent) => {
+    if (e && e.preventDefault) e.preventDefault();
     if (onUpdateComputerInactivityDays) {
       onUpdateComputerInactivityDays(localComputerDays);
     }
-    setPolicySavedMsg(`Política de computadores obsoletos salva com sucesso (${localComputerDays} dias)!`);
-    setTimeout(() => setPolicySavedMsg(''), 4000);
+    setPolicySavedMsg(`Política de computadores obsoletos salva com sucesso (${localComputerDays} dias)! Total de ${obsoleteComputers.length} máquina(s) enquadrada(s) no critério.`);
+    setTimeout(() => setPolicySavedMsg(''), 5000);
 
     if (onAddAuditLog) {
       onAddAuditLog({
@@ -939,9 +975,21 @@ export default function Dashboard({
                 </label>
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] text-slate-400">Selecionado:</span>
-                  <span className="font-mono font-bold text-rose-700 bg-rose-50 px-2.5 py-0.5 rounded-md text-xs border border-rose-200/80">
-                    {localComputerDays} dias
-                  </span>
+                  <div className="flex items-center bg-white border border-rose-300 rounded-lg px-2 py-0.5 shadow-2xs">
+                    <input 
+                      type="number"
+                      min="0"
+                      max="365"
+                      value={localComputerDays}
+                      onChange={(e) => {
+                        const val = Math.min(365, Math.max(0, parseInt(e.target.value, 10) || 0));
+                        setLocalComputerDays(val);
+                      }}
+                      className="w-12 text-center font-mono font-bold text-rose-700 text-xs focus:outline-none"
+                      id="computer-days-number-input"
+                    />
+                    <span className="text-xs font-bold text-rose-700 pr-0.5">dias</span>
+                  </div>
                 </div>
               </div>
 
@@ -958,10 +1006,11 @@ export default function Dashboard({
                   id="computer-inactivity-slider"
                 />
                 <div className="flex justify-between items-center text-[10px] text-slate-400 font-mono">
-                  <span>0 dias (Sem contato recente)</span>
-                  <span className="hidden sm:inline">90 dias (Padrão corporativo)</span>
-                  <span className="hidden sm:inline">180 dias (Semestral)</span>
-                  <span>365 dias (1 ano)</span>
+                  <span>0d (Sem contato)</span>
+                  <span>90d (Padrão)</span>
+                  <span>180d</span>
+                  <span className="font-bold text-rose-600">240d</span>
+                  <span>365d (1 ano)</span>
                 </div>
               </div>
             </div>
@@ -969,14 +1018,16 @@ export default function Dashboard({
             {/* Quick Presets & Save Button */}
             <div className="flex flex-wrap items-center gap-1.5 lg:border-l lg:border-slate-200 lg:pl-4 shrink-0">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block w-full lg:w-auto">
-                Atalhos Rápidos:
+                Atalhos:
               </span>
               {[
                 { label: '0d', val: 0 },
                 { label: '30d', val: 30 },
                 { label: '60d', val: 60 },
                 { label: '90d', val: 90 },
+                { label: '120d', val: 120 },
                 { label: '180d', val: 180 },
+                { label: '240d', val: 240 },
                 { label: '365d', val: 365 },
               ].map(preset => (
                 <button
@@ -996,8 +1047,10 @@ export default function Dashboard({
               <button
                 type="button"
                 onClick={handleSaveComputerPolicy}
-                className="ml-auto lg:ml-2 px-3 py-1 bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs rounded-lg shadow-xs transition-colors cursor-pointer"
+                className="ml-auto lg:ml-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs rounded-lg shadow-xs transition-colors cursor-pointer flex items-center gap-1"
+                title="Salvar política no Active Directory e persistir configuração"
               >
+                <Check className="w-3.5 h-3.5 text-emerald-400" />
                 Salvar Política AD
               </button>
             </div>
@@ -1015,19 +1068,19 @@ export default function Dashboard({
             <div className="bg-white p-2.5 rounded-lg border border-rose-100 bg-rose-50/20">
               <span className="text-[10px] font-bold text-rose-600 uppercase tracking-wider block">Obsoletos (+{localComputerDays}d)</span>
               <span className="text-base font-bold font-display text-rose-700">{obsoleteComputers.length}</span>
-              <span className="text-[10px] text-rose-600/80 block -mt-0.5">Sem contato recente</span>
+              <span className="text-[10px] text-rose-600/80 block -mt-0.5">Total enquadrado</span>
+            </div>
+
+            <div className="bg-white p-2.5 rounded-lg border border-amber-100 bg-amber-50/20">
+              <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wider block">Ativos em Risco</span>
+              <span className="text-base font-bold font-display text-amber-700">{activeObsoleteComputers.length}</span>
+              <span className="text-[10px] text-amber-600 block -mt-0.5">Pendentes desativação</span>
             </div>
 
             <div className="bg-white p-2.5 rounded-lg border border-slate-100/80">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Já Desativados</span>
-              <span className="text-base font-bold font-display text-slate-700">{disabledComputers.length}</span>
+              <span className="text-base font-bold font-display text-slate-700">{disabledObsoleteComputers.length}</span>
               <span className="text-[10px] text-slate-400 block -mt-0.5">Contas suspensas</span>
-            </div>
-
-            <div className="bg-white p-2.5 rounded-lg border border-slate-100/80">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Obsolescência</span>
-              <span className="text-base font-bold font-display text-amber-600">{obsoletePercentage}%</span>
-              <span className="text-[10px] text-slate-400 block -mt-0.5">Risco de contas órfãs</span>
             </div>
           </div>
         </div>
@@ -1035,8 +1088,8 @@ export default function Dashboard({
         {/* Worklist Controls (Search, Filter, Batch Action) */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           
-          <div className="flex flex-1 items-center gap-2 max-w-md">
-            <div className="relative flex-1">
+          <div className="flex flex-1 flex-wrap items-center gap-2 max-w-xl">
+            <div className="relative flex-1 min-w-[180px]">
               <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input 
                 type="text"
@@ -1046,6 +1099,16 @@ export default function Dashboard({
                 className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
             </div>
+
+            <select
+              value={selectedStatusFilter}
+              onChange={(e) => setSelectedStatusFilter(e.target.value)}
+              className="px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-medium text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="todos">Todos os Status ({obsoleteComputers.length})</option>
+              <option value="ativos">Ativos em Risco (+{localComputerDays}d) ({activeObsoleteComputers.length})</option>
+              <option value="desativados">Já Desativados ({disabledObsoleteComputers.length})</option>
+            </select>
 
             <select
               value={selectedOsFilter}

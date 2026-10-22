@@ -654,6 +654,66 @@
       "description": "Sala de treinamento - sem uso há mais de 1 ano",
       "ipAddress": "172.16.30.80",
       "managedBy": "mariana.oliveira"
+    },
+    {
+      "id": "c21",
+      "name": "WKS-ENG-PROJ03",
+      "dnsHostName": "WKS-ENG-PROJ03.empresa.local",
+      "operatingSystem": "Windows 11 Pro",
+      "operatingSystemVersion": "23H2 (Build 22631)",
+      "ou": "OU=Computadores,OU=Engenharia",
+      "lastLogon": "2026-02-22",
+      "pwdLastSet": "2026-02-04",
+      "status": "Ativo",
+      "whenCreated": "2023-09-15",
+      "description": "Estação de trabalho CAD/Projetos - analista em licença médica prolongada",
+      "ipAddress": "172.16.80.14",
+      "managedBy": "admin.silva"
+    },
+    {
+      "id": "c22",
+      "name": "WKS-ATEND-02",
+      "dnsHostName": "WKS-ATEND-02.empresa.local",
+      "operatingSystem": "Windows 10 Pro",
+      "operatingSystemVersion": "22H2",
+      "ou": "OU=Computadores,OU=Atendimento",
+      "lastLogon": "2026-02-19",
+      "pwdLastSet": "2026-01-25",
+      "status": "Ativo",
+      "whenCreated": "2022-12-01",
+      "description": "Ponto fixo de atendimento presencial - guichê desativado sem baixa no AD",
+      "ipAddress": "172.16.60.25",
+      "managedBy": "carlos.souza"
+    },
+    {
+      "id": "c23",
+      "name": "NOTE-CONSULT-04",
+      "dnsHostName": "NOTE-CONSULT-04.empresa.local",
+      "operatingSystem": "Windows 11 Enterprise",
+      "operatingSystemVersion": "22H2",
+      "ou": "OU=Computadores,OU=Consultoria",
+      "lastLogon": "2026-02-06",
+      "pwdLastSet": "2026-01-15",
+      "status": "Ativo",
+      "whenCreated": "2023-04-10",
+      "description": "Notebook institucional cedido a auditoria externa finalizada",
+      "ipAddress": "172.16.40.90",
+      "managedBy": "ana.santos"
+    },
+    {
+      "id": "c24",
+      "name": "SRV-TESTE-LEG01",
+      "dnsHostName": "SRV-TESTE-LEG01.empresa.local",
+      "operatingSystem": "Windows Server 2012 R2 Standard",
+      "operatingSystemVersion": "6.3 (Build 9600)",
+      "ou": "OU=Servidores,OU=TI",
+      "lastLogon": "2026-01-23",
+      "pwdLastSet": "2025-12-26",
+      "status": "Ativo",
+      "whenCreated": "2019-11-20",
+      "description": "Servidor legado de testes de homologação - sem comunicação com PDC há mais de 8 meses",
+      "ipAddress": "172.16.0.77",
+      "managedBy": "admin.silva"
     }
   ]
 }

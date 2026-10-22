@@ -39,6 +39,7 @@ const defaultConfig = {
   domain: "empresa.local",
   useDemoMode: true,
   inactivityDays: 90,
+  computerInactivityDays: 90,
   functionalLevel: "Windows Server 2012"
 };
 
@@ -784,6 +785,66 @@ function getDemoComputers(domain: string = "inema.intranet") {
       description: 'Sala de treinamento - sem uso há mais de 1 ano',
       ipAddress: '172.16.30.80',
       managedBy: 'mariana.oliveira'
+    },
+    {
+      id: 'c21',
+      name: 'WKS-ENG-PROJ03',
+      dnsHostName: `WKS-ENG-PROJ03.${domain}`,
+      operatingSystem: 'Windows 11 Pro',
+      operatingSystemVersion: '23H2 (Build 22631)',
+      ou: 'OU=Computadores,OU=Engenharia',
+      lastLogon: computePastDateServer(242),
+      pwdLastSet: computePastDateServer(260),
+      status: 'Ativo',
+      whenCreated: '2023-09-15',
+      description: 'Estação de trabalho CAD/Projetos - analista em licença médica prolongada',
+      ipAddress: '172.16.80.14',
+      managedBy: 'admin.silva'
+    },
+    {
+      id: 'c22',
+      name: 'WKS-ATEND-02',
+      dnsHostName: `WKS-ATEND-02.${domain}`,
+      operatingSystem: 'Windows 10 Pro',
+      operatingSystemVersion: '22H2',
+      ou: 'OU=Computadores,OU=Atendimento',
+      lastLogon: computePastDateServer(245),
+      pwdLastSet: computePastDateServer(270),
+      status: 'Ativo',
+      whenCreated: '2022-12-01',
+      description: 'Ponto fixo de atendimento presencial - guichê desativado sem baixa no AD',
+      ipAddress: '172.16.60.25',
+      managedBy: 'carlos.souza'
+    },
+    {
+      id: 'c23',
+      name: 'NOTE-CONSULT-04',
+      dnsHostName: `NOTE-CONSULT-04.${domain}`,
+      operatingSystem: 'Windows 11 Enterprise',
+      operatingSystemVersion: '22H2',
+      ou: 'OU=Computadores,OU=Consultoria',
+      lastLogon: computePastDateServer(258),
+      pwdLastSet: computePastDateServer(280),
+      status: 'Ativo',
+      whenCreated: '2023-04-10',
+      description: 'Notebook institucional cedido a auditoria externa finalizada',
+      ipAddress: '172.16.40.90',
+      managedBy: 'ana.santos'
+    },
+    {
+      id: 'c24',
+      name: 'SRV-TESTE-LEG01',
+      dnsHostName: `SRV-TESTE-LEG01.${domain}`,
+      operatingSystem: 'Windows Server 2012 R2 Standard',
+      operatingSystemVersion: '6.3 (Build 9600)',
+      ou: 'OU=Servidores,OU=TI',
+      lastLogon: computePastDateServer(272),
+      pwdLastSet: computePastDateServer(300),
+      status: 'Ativo',
+      whenCreated: '2019-11-20',
+      description: 'Servidor legado de testes de homologação - sem comunicação com PDC há mais de 8 meses',
+      ipAddress: '172.16.0.77',
+      managedBy: 'admin.silva'
     }
   ];
 }
@@ -804,7 +865,7 @@ function readDatabase() {
     const db = JSON.parse(data);
     let modified = false;
 
-    if (!db.computers || !Array.isArray(db.computers) || db.computers.length === 0) {
+    if (!db.computers || !Array.isArray(db.computers) || db.computers.length < 24) {
       db.computers = getDemoComputers(readConfig().domain);
       modified = true;
     }
@@ -1066,6 +1127,7 @@ app.get("/api/ad/status", async (req, res) => {
       username: cfg.username,
       domain: cfg.domain,
       inactivityDays: cfg.inactivityDays !== undefined ? cfg.inactivityDays : 90,
+      computerInactivityDays: cfg.computerInactivityDays !== undefined ? cfg.computerInactivityDays : 90,
       functionalLevel: cfg.functionalLevel || "Windows Server 2012"
     },
     connected: test.success,
@@ -1075,7 +1137,7 @@ app.get("/api/ad/status", async (req, res) => {
 
 // 2. Save AD Connection Config
 app.post("/api/ad/save-config", async (req, res) => {
-  const { url, baseDN, username, password, domain, useDemoMode, inactivityDays, functionalLevel } = req.body;
+  const { url, baseDN, username, password, domain, useDemoMode, inactivityDays, computerInactivityDays, functionalLevel } = req.body;
   const current = readConfig();
   
   const updated = {
@@ -1086,6 +1148,7 @@ app.post("/api/ad/save-config", async (req, res) => {
     domain: domain !== undefined ? domain : current.domain,
     useDemoMode: useDemoMode !== undefined ? useDemoMode : current.useDemoMode,
     inactivityDays: inactivityDays !== undefined ? inactivityDays : (current.inactivityDays !== undefined ? current.inactivityDays : 90),
+    computerInactivityDays: computerInactivityDays !== undefined ? computerInactivityDays : (current.computerInactivityDays !== undefined ? current.computerInactivityDays : 90),
     functionalLevel: functionalLevel !== undefined ? functionalLevel : (current.functionalLevel !== undefined ? current.functionalLevel : "Windows Server 2012")
   };
 
@@ -1119,6 +1182,7 @@ app.post("/api/ad/save-config", async (req, res) => {
       username: updated.username,
       domain: updated.domain,
       inactivityDays: updated.inactivityDays,
+      computerInactivityDays: updated.computerInactivityDays,
       functionalLevel: updated.functionalLevel
     }
   });
@@ -2069,17 +2133,33 @@ app.get("/api/ad/computers", async (req, res) => {
   }
 
   // Real AD query for computer objects
+  let responded = false;
+  const safeRespond = (data: any) => {
+    if (!responded) {
+      responded = true;
+      res.json(data);
+    }
+  };
+
   const client = ldap.createClient({ url: cfg.url, connectTimeout: 4000 });
+  
+  // Prevent unhandled socket/connection errors from crashing the process
+  client.on("error", (err: any) => {
+    console.warn("Aviso de erro no socket/cliente LDAP para computadores:", err.message);
+    const db = readDatabase();
+    safeRespond(db.computers || []);
+  });
+
   client.bind(cfg.username, cfg.password, (bindErr: any) => {
     if (bindErr) {
       client.destroy();
       console.warn("Falha no bind LDAP para computadores, usando fallback:", bindErr.message);
       const db = readDatabase();
-      return res.json(db.computers || []);
+      return safeRespond(db.computers || []);
     }
 
     const opts = {
-      filter: "(&(objectCategory=computer)(objectClass=computer))",
+      filter: "(|(objectCategory=computer)(objectClass=computer))",
       scope: "sub",
       attributes: [
         "cn",
@@ -2102,7 +2182,7 @@ app.get("/api/ad/computers", async (req, res) => {
         client.destroy();
         console.warn("Falha ao buscar computadores no AD:", err.message);
         const db = readDatabase();
-        return res.json(db.computers || []);
+        return safeRespond(db.computers || []);
       }
 
       const computerList: any[] = [];
@@ -2112,22 +2192,28 @@ app.get("/api/ad/computers", async (req, res) => {
 
       searchRes.on("error", (sErr: any) => {
         console.warn("Erro no stream de busca de computadores:", sErr.message);
+        client.destroy();
+        const db = readDatabase();
+        safeRespond(db.computers || []);
       });
 
       searchRes.on("end", () => {
         client.destroy();
         if (computerList.length === 0) {
           const db = readDatabase();
-          return res.json(db.computers || []);
+          return safeRespond(db.computers || []);
         }
 
         const mapped = computerList.map((comp: any, idx: number) => {
-          const rawName = comp.sAMAccountName || comp.cn || `WKS-${idx + 1}`;
+          const rawName = comp.sAMAccountName || comp.samaccountname || comp.cn || `WKS-${idx + 1}`;
           const cleanName = rawName.endsWith("$") ? rawName.slice(0, -1) : rawName;
-          const uac = parseInt(comp.userAccountControl || "4096", 10);
+          const uac = parseInt(comp.userAccountControl || comp.useraccountcontrol || "4096", 10);
           const isCompDisabled = (uac & 0x0002) !== 0;
 
-          const actualLogon = getActualLastLogon(comp.lastLogonTimestamp, comp.lastLogon);
+          const actualLogon = getActualLastLogon(
+            comp.lastLogonTimestamp || comp.lastlogontimestamp, 
+            comp.lastLogon || comp.lastlogon
+          );
           const lastLogonValue = actualLogon === "0" ? "Nunca" : safeParseDate(actualLogon, "Nunca");
 
           let status: 'Ativo' | 'Obsoleto' | 'Desativado' = 'Ativo';
@@ -2136,30 +2222,31 @@ app.get("/api/ad/computers", async (req, res) => {
           }
 
           let guid = `c_${idx + 1}`;
-          if (comp.objectGUID) {
-            if (Buffer.isBuffer(comp.objectGUID)) {
-              guid = comp.objectGUID.toString('hex');
+          if (comp.objectGUID || comp.objectguid) {
+            const og = comp.objectGUID || comp.objectguid;
+            if (Buffer.isBuffer(og)) {
+              guid = og.toString('hex');
             } else {
-              guid = String(comp.objectGUID);
+              guid = String(og);
             }
           }
 
           return {
             id: guid,
             name: cleanName,
-            dnsHostName: comp.dNSHostName || `${cleanName}.${cfg.domain}`,
-            operatingSystem: comp.operatingSystem || "Windows Workstation",
-            operatingSystemVersion: comp.operatingSystemVersion || "",
-            ou: extractOU(comp.dn || comp.distinguishedName || "", "Computadores"),
+            dnsHostName: comp.dNSHostName || comp.dnshostname || `${cleanName}.${cfg.domain}`,
+            operatingSystem: comp.operatingSystem || comp.operatingsystem || "Windows Workstation",
+            operatingSystemVersion: comp.operatingSystemVersion || comp.operatingsystemversion || "",
+            ou: extractOU(comp.dn || comp.distinguishedName || comp.distinguishedname || "", "Computadores"),
             lastLogon: lastLogonValue,
-            pwdLastSet: safeParseDate(comp.pwdLastSet, "Nunca"),
+            pwdLastSet: safeParseDate(comp.pwdLastSet || comp.pwdlastset, "Nunca"),
             status,
-            whenCreated: safeParseDate(comp.whenCreated, "2024-01-01"),
+            whenCreated: safeParseDate(comp.whenCreated || comp.whencreated, "2024-01-01"),
             description: comp.description || `Computador registrado no domínio ${cfg.domain}`
           };
         });
 
-        res.json(mapped);
+        safeRespond(mapped);
       });
     });
   });

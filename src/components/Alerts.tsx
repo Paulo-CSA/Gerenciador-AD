@@ -102,17 +102,36 @@ export default function Alerts({
 
   // Calculate difference in days for computers
   const getComputerDaysInactive = (lastLogonStr: string) => {
-    if (!lastLogonStr || lastLogonStr === 'Nunca' || lastLogonStr === 'never') return 999;
-    const parts = lastLogonStr.split(' ')[0].split('-');
-    let logonDate: Date;
-    if (parts.length === 3) {
-      logonDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+    if (!lastLogonStr || lastLogonStr === 'Nunca' || lastLogonStr === 'never' || lastLogonStr === '0') return 999;
+    
+    const cleanStr = String(lastLogonStr).trim();
+    const datePart = cleanStr.split(' ')[0].split('T')[0];
+    let logonDate: Date | null = null;
+    
+    const ymdParts = datePart.split('-');
+    if (ymdParts.length === 3 && ymdParts[0].length === 4) {
+      logonDate = new Date(parseInt(ymdParts[0], 10), parseInt(ymdParts[1], 10) - 1, parseInt(ymdParts[2], 10));
     } else {
-      logonDate = new Date(lastLogonStr);
+      const slashParts = datePart.split('/');
+      if (slashParts.length === 3) {
+        if (slashParts[2].length === 4) {
+          // DD/MM/YYYY
+          logonDate = new Date(parseInt(slashParts[2], 10), parseInt(slashParts[1], 10) - 1, parseInt(slashParts[0], 10));
+        } else if (slashParts[0].length === 4) {
+          // YYYY/MM/DD
+          logonDate = new Date(parseInt(slashParts[0], 10), parseInt(slashParts[1], 10) - 1, parseInt(slashParts[2], 10));
+        }
+      }
+    }
+    
+    if (!logonDate || isNaN(logonDate.getTime())) {
+      logonDate = new Date(cleanStr);
     }
     if (isNaN(logonDate.getTime())) return 999;
+    
     const currentDate = new Date();
-    const diffTime = Math.abs(currentDate.getTime() - logonDate.getTime());
+    const diffTime = currentDate.getTime() - logonDate.getTime();
+    if (diffTime < 0) return 0;
     return Math.floor(diffTime / (1000 * 60 * 60 * 24));
   };
 
@@ -124,14 +143,14 @@ export default function Alerts({
     return days >= inactivityDays;
   });
 
-  // Filter inactive / obsolete computers
+  // Filter inactive / obsolete computers (calculates in real-time based on selected threshold)
   const inactiveComputers = useMemo(() => {
     return computers.filter(comp => {
       if (dismissedCompIds.includes(comp.id)) return false;
       const days = getComputerDaysInactive(comp.lastLogon);
-      return days >= computerInactivityDays;
+      return days >= tempComputerDays;
     });
-  }, [computers, computerInactivityDays, dismissedCompIds]);
+  }, [computers, tempComputerDays, dismissedCompIds]);
 
   // Filtered computers by search / OS
   const filteredComputers = useMemo(() => {
@@ -593,9 +612,20 @@ export default function Alerts({
                     <SlidersHorizontal className="w-3.5 h-3.5 text-rose-500" />
                     Limite de Inatividade
                   </label>
-                  <span className="bg-rose-50 text-rose-700 font-bold px-2.5 py-0.5 rounded font-mono border border-rose-200">
-                    {tempComputerDays} dias
-                  </span>
+                  <div className="flex items-center gap-1 bg-white border border-rose-300 rounded px-1.5 py-0.5">
+                    <input 
+                      type="number"
+                      min="0"
+                      max="365"
+                      value={tempComputerDays}
+                      onChange={(e) => {
+                        const val = Math.min(365, Math.max(0, parseInt(e.target.value, 10) || 0));
+                        setTempComputerDays(val);
+                      }}
+                      className="w-12 text-center font-mono font-bold text-rose-700 text-xs focus:outline-none"
+                    />
+                    <span className="text-[10px] font-bold text-rose-700">dias</span>
+                  </div>
                 </div>
 
                 {/* Barrinha de 0 até 365 dias */}
@@ -613,11 +643,12 @@ export default function Alerts({
                   <span>0d (Sem contato)</span>
                   <span>90d (Padrão)</span>
                   <span>180d</span>
+                  <span className="font-bold text-rose-600">240d</span>
                   <span>365d (1 ano)</span>
                 </div>
 
                 <div className="flex flex-wrap gap-1 pt-1">
-                  {[0, 30, 60, 90, 180, 365].map(d => (
+                  {[0, 30, 60, 90, 120, 180, 240, 365].map(d => (
                     <button
                       key={d}
                       type="button"

@@ -4,5 +4,8 @@
   "username": "admin@empresa.local",
   "password": "",
   "domain": "empresa.local",
-  "useDemoMode": true
+  "useDemoMode": true,
+  "inactivityDays": 90,
+  "computerInactivityDays": 240,
+  "functionalLevel": "Windows Server 2012"
 }

@@ -97,9 +97,15 @@ export default function App() {
         setAdConnected(statusData.connected);
         setUseDemoMode(statusData.useDemoMode);
         setAdStatus(statusData);
-        if (statusData.config && typeof statusData.config.inactivityDays === 'number') {
-          setInactivityDays(statusData.config.inactivityDays);
-          localStorage.setItem('ad_inactivity_threshold', statusData.config.inactivityDays.toString());
+        if (statusData.config) {
+          if (typeof statusData.config.inactivityDays === 'number') {
+            setInactivityDays(statusData.config.inactivityDays);
+            localStorage.setItem('ad_inactivity_threshold', statusData.config.inactivityDays.toString());
+          }
+          if (typeof statusData.config.computerInactivityDays === 'number') {
+            setComputerInactivityDays(statusData.config.computerInactivityDays);
+            localStorage.setItem('ad_computer_inactivity_threshold', statusData.config.computerInactivityDays.toString());
+          }
         }
       }
     } catch (err) {
@@ -144,9 +150,18 @@ export default function App() {
     }
   };
 
-  const handleUpdateComputerInactivityDays = (days: number) => {
+  const handleUpdateComputerInactivityDays = async (days: number) => {
     setComputerInactivityDays(days);
     localStorage.setItem('ad_computer_inactivity_threshold', days.toString());
+    try {
+      await fetch('/api/ad/save-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ computerInactivityDays: days })
+      });
+    } catch (err) {
+      console.error('Erro ao atualizar limite de computadores no servidor:', err);
+    }
   };
 
   const handleUpdateComputer = async (updatedComputer: ADComputer) => {
