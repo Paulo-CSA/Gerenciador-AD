@@ -246,6 +246,125 @@ function extractOU(dn: string, fallbackDepartment: string = "Geral"): string {
   return fallbackDepartment;
 }
 
+interface CachedADComputer {
+  name: string;
+  dn: string;
+  guid: string;
+  canonicalPath: string;
+  userAccountControl: number;
+}
+const globalComputersCache = new Map<string, CachedADComputer>();
+
+/**
+ * Converts an LDAP DN (e.g. CN=NB-INEMA-12440,OU=NOTEBOOKS,OU=ZOOLOGICO,OU=UR-PARQUES-POSTOS AVANCADOS,OU=WORKSTATION,DC=inema,DC=intranet)
+ * into a canonical path (e.g. inema.intranet/WORKSTATION/UR-PARQUES-POSTOS AVANCADOS/ZOOLOGICO/NOTEBOOKS/NB-INEMA-12440)
+ */
+function dnToCanonicalPath(dn: string, domainFallback?: string): string {
+  if (!dn) return "";
+  
+  // Extract CN
+  const cnMatch = dn.match(/CN\s*=\s*([^,]+)/i);
+  const cn = cnMatch ? cnMatch[1].trim() : "";
+
+  // Extract OUs in reverse order (bottom-up in LDAP -> top-down in canonical path)
+  const ouMatches = dn.match(/OU\s*=\s*([^,]+)/gi) || [];
+  const ous = ouMatches.map(m => {
+    const parts = m.split("=");
+    return parts.length > 1 ? parts[1].trim() : "";
+  }).filter(Boolean).reverse();
+
+  // Extract DCs for domain
+  const dcMatches = dn.match(/DC\s*=\s*([^,]+)/gi) || [];
+  let domain = dcMatches.map(m => {
+    const parts = m.split("=");
+    return parts.length > 1 ? parts[1].trim() : "";
+  }).filter(Boolean).join(".");
+
+  if (!domain && domainFallback) {
+    domain = domainFallback;
+  }
+
+  const parts: string[] = [];
+  if (domain) parts.push(domain);
+  if (ous.length > 0) parts.push(...ous);
+  if (cn) parts.push(cn);
+
+  return parts.join("/");
+}
+
+/**
+ * Converts a canonical path (e.g. inema.intranet/WORKSTATION/UR-PARQUES-POSTOS AVANCADOS/ZOOLOGICO/NOTEBOOKS/NB-INEMA-12440)
+ * into an LDAP DN (e.g. CN=NB-INEMA-12440,OU=NOTEBOOKS,OU=ZOOLOGICO,OU=UR-PARQUES-POSTOS AVANCADOS,OU=WORKSTATION,DC=inema,DC=intranet)
+ */
+function canonicalPathToDN(canonicalPath: string, domainFallback: string, baseDNFallback: string): { name: string; dn: string } {
+  if (!canonicalPath) return { name: "", dn: "" };
+  
+  const rawParts = canonicalPath.split("/").map(p => p.trim()).filter(Boolean);
+  if (rawParts.length === 0) return { name: "", dn: "" };
+
+  const machineName = rawParts[rawParts.length - 1];
+  const cleanName = machineName.endsWith("$") ? machineName.slice(0, -1) : machineName;
+
+  const ouParts = rawParts.slice(0, -1);
+  let baseDN = baseDNFallback || "DC=inema,DC=intranet";
+
+  // Check if first part is domain (contains a dot like inema.intranet)
+  if (ouParts.length > 0 && ouParts[0].includes(".")) {
+    const domainStr = ouParts.shift()!;
+    baseDN = domainStr.split(".").map(d => `DC=${d}`).join(",");
+  }
+
+  let dn = "";
+  if (ouParts.length > 0) {
+    // Reverse OUs so deepest OU comes right after CN
+    const ous = [...ouParts].reverse().map(ou => `OU=${ou}`).join(",");
+    dn = `CN=${cleanName},${ous},${baseDN}`;
+  } else {
+    dn = `CN=${cleanName},${baseDN}`;
+  }
+
+  return { name: cleanName, dn };
+}
+
+/**
+ * Resolves any identifier format (cleanName, sAMAccountName, SID, GUID, DN, or Canonical Path)
+ * into the computer's clean name and exact LDAP DN.
+ */
+function resolveComputerIdentifier(
+  input: string | undefined,
+  cfg: any
+): { name: string; dn?: string; uac?: number } {
+  if (!input || typeof input !== "string") {
+    return { name: "" };
+  }
+  const trimmed = input.trim();
+  const lower = trimmed.toLowerCase();
+
+  // 1. Check in-memory AD cache (populated from latest query)
+  const cached = globalComputersCache.get(lower);
+  if (cached) {
+    return { name: cached.name, dn: cached.dn, uac: cached.userAccountControl };
+  }
+
+  // 2. Check if input is an LDAP DN (e.g. CN=NB-INEMA-12440,OU=...,DC=inema,DC=intranet)
+  if (/^CN=/i.test(trimmed) && /DC=/i.test(trimmed)) {
+    const cnMatch = trimmed.match(/^CN=([^,]+)/i);
+    const name = cnMatch ? cnMatch[1].trim() : trimmed;
+    const cleanName = name.endsWith("$") ? name.slice(0, -1) : name;
+    return { name: cleanName, dn: trimmed };
+  }
+
+  // 3. Check if input is a Canonical Path (e.g. inema.intranet/WORKSTATION/.../NB-INEMA-12440)
+  if (trimmed.includes("/")) {
+    const { name, dn } = canonicalPathToDN(trimmed, cfg.domain, cfg.baseDN);
+    return { name, dn };
+  }
+
+  // 4. Default clean machine name
+  const cleanName = trimmed.endsWith("$") ? trimmed.slice(0, -1) : trimmed;
+  return { name: cleanName };
+}
+
 function isUserAdministrative(user: any): boolean {
   if (!user || !user.username) return false;
   
@@ -2171,7 +2290,9 @@ app.get("/api/ad/computers", async (req, res) => {
       "userAccountControl",
       "description",
       "managedBy",
-      "objectGUID"
+      "objectGUID",
+      "objectSid",
+      "canonicalName"
     ];
 
     // Query computers using AD filter (&(objectCategory=computer)(sAMAccountName=*))
@@ -2224,7 +2345,12 @@ app.get("/api/ad/computers", async (req, res) => {
             status = "Desativado";
           }
 
-          let guid = comp.distinguishedName || comp.dn || cleanName;
+          let fullDN = comp.dn || comp.distinguishedName || comp.distinguishedname || "";
+          if (!fullDN && comp.dn?.toString) {
+            fullDN = comp.dn.toString();
+          }
+
+          let guid = fullDN || cleanName;
           if (comp.objectGUID || comp.objectguid) {
             const og = comp.objectGUID || comp.objectguid;
             if (Buffer.isBuffer(og)) {
@@ -2232,17 +2358,43 @@ app.get("/api/ad/computers", async (req, res) => {
             } else {
               guid = String(og);
             }
+          } else if (comp.objectSid || comp.objectsid) {
+            const os = comp.objectSid || comp.objectsid;
+            guid = String(os);
           }
 
-          mappedComputers.push({
-            id: guid,
+          let canonicalPath = comp.canonicalName || comp.canonicalname || "";
+          if (!canonicalPath && fullDN) {
+            canonicalPath = dnToCanonicalPath(fullDN, cfg.domain);
+          }
+
+          const ouDisplay = extractOU(fullDN, "Computadores");
+
+          // Update memory cache for this computer so any future operation resolves instantly
+          const cacheEntry: CachedADComputer = {
             name: cleanName,
+            dn: fullDN,
+            guid: guid,
+            canonicalPath: canonicalPath,
+            userAccountControl: uac
+          };
+          globalComputersCache.set(cleanName.toLowerCase(), cacheEntry);
+          globalComputersCache.set(`${cleanName.toLowerCase()}$`, cacheEntry);
+          if (guid) globalComputersCache.set(guid.toLowerCase(), cacheEntry);
+          if (fullDN) globalComputersCache.set(fullDN.toLowerCase(), cacheEntry);
+          if (canonicalPath) globalComputersCache.set(canonicalPath.toLowerCase(), cacheEntry);
+
+          mappedComputers.push({
+            id: cleanName, // CRITICAL: Always use machine name (e.g. NB-INEMA-12440), never raw SID/GUID
+            name: cleanName,
+            guid: guid,
             dnsHostName: comp.dNSHostName || comp.dnshostname || `${cleanName}.${cfg.domain}`,
             operatingSystem: comp.operatingSystem || comp.operatingsystem || "Windows Workstation",
             operatingSystemVersion: comp.operatingSystemVersion || comp.operatingsystemversion || "",
-            ou: extractOU(comp.dn || comp.distinguishedName || comp.distinguishedname || "", "Computadores"),
-            dn: comp.dn || comp.distinguishedName || comp.distinguishedname || "",
-            distinguishedName: comp.dn || comp.distinguishedName || comp.distinguishedname || "",
+            ou: ouDisplay,
+            dn: fullDN,
+            distinguishedName: fullDN,
+            canonicalPath: canonicalPath,
             userAccountControl: uac,
             lastLogon: lastLogonValue,
             pwdLastSet: safeParseDate(comp.pwdLastSet || comp.pwdlastset, "Nunca"),
@@ -2270,9 +2422,13 @@ app.get("/api/ad/computers", async (req, res) => {
 /**
  * Helper to dynamically locate a computer by name/DN and update its userAccountControl in Active Directory
  */
+/**
+ * Helper to dynamically locate a computer by name, DN, canonical path, or SID/GUID
+ * and update its userAccountControl in Active Directory
+ */
 async function disableOrEnableComputerInAD(
   cfg: any,
-  computerName: string,
+  computerIdentifier: string,
   knownDN: string | undefined,
   disable: boolean
 ): Promise<{ success: boolean; dn?: string; uac?: number; error?: string }> {
@@ -2285,7 +2441,14 @@ async function disableOrEnableComputerInAD(
       }
     };
 
-    const client = ldap.createClient({ url: cfg.url, connectTimeout: 5000 });
+    // 1. Resolve identifier to clean computer name and DN
+    const info = resolveComputerIdentifier(computerIdentifier, cfg);
+    const cleanName = info.name || (computerIdentifier.endsWith("$") ? computerIdentifier.slice(0, -1) : computerIdentifier);
+    let targetDN = (knownDN && knownDN.includes("DC=")) 
+      ? knownDN 
+      : (info.dn && info.dn.includes("DC=") ? info.dn : null);
+
+    const client = ldap.createClient({ url: cfg.url, connectTimeout: 6000 });
 
     client.on("error", (err: any) => {
       console.warn("Erro de conexão no cliente LDAP durante desativação de máquina:", err.message);
@@ -2301,70 +2464,112 @@ async function disableOrEnableComputerInAD(
         });
       }
 
-      const cleanName = computerName.endsWith("$") ? computerName.slice(0, -1) : computerName;
+      // Execution helper to modify userAccountControl attribute
+      const executeModify = (dnToModify: string, currentUacVal: number) => {
+        const currentUac = isNaN(currentUacVal) || currentUacVal <= 0 ? 4096 : currentUacVal;
+        // Bit 2 (0x0002) is ACCOUNTDISABLE
+        const newUac = disable ? (currentUac | 2) : (currentUac & ~2);
 
-      // Search across the entire baseDN to find the exact DN and current userAccountControl
-      const searchOpts = {
-        filter: `(&(objectCategory=computer)(|(sAMAccountName=${cleanName}$)(sAMAccountName=${cleanName})(cn=${cleanName})))`,
-        scope: "sub",
-        attributes: ["dn", "distinguishedName", "userAccountControl", "sAMAccountName", "cn"]
-      };
-
-      client.search(cfg.baseDN, searchOpts, (searchErr: any, searchRes: any) => {
-        if (searchErr) {
-          try { client.destroy(); } catch (_) {}
-          return safeResolve({ success: false, error: "Erro na busca do computador no AD: " + searchErr.message });
-        }
-
-        let foundEntry: any = null;
-
-        searchRes.on("searchEntry", (entry: any) => {
-          foundEntry = entry.object;
+        const change = new ldap.Change({
+          operation: "replace",
+          modification: {
+            userAccountControl: String(newUac)
+          }
         });
 
-        searchRes.on("error", (sErr: any) => {
+        client.modify(dnToModify, [change], (modErr: any) => {
           try { client.destroy(); } catch (_) {}
-          safeResolve({ success: false, error: "Erro ao localizar objeto de computador no AD: " + sErr.message });
-        });
-
-        searchRes.on("end", () => {
-          const targetDN = foundEntry?.dn || foundEntry?.distinguishedName || (knownDN && knownDN.includes("DC=") ? knownDN : null);
-
-          if (!targetDN) {
-            try { client.destroy(); } catch (_) {}
-            return safeResolve({
-              success: false,
-              error: `Computador '${cleanName}' não foi localizado no domínio (${cfg.baseDN}). Verifique se a conta existe no AD.`
-            });
+          if (modErr) {
+            let errMsg = modErr.message || String(modErr);
+            if (modErr.code === 50 || errMsg.toLowerCase().includes("insufficient access")) {
+              errMsg = `Permissão negada no Active Directory (Código 50: Insufficient Access Rights). O usuário '${cfg.username}' não possui direitos de escrita para desativar/modificar contas de computador na OU '${dnToModify}'. Delegue permissão de redefinir/desativar conta no AD.`;
+            }
+            console.error(`Erro ao modificar userAccountControl para ${dnToModify}:`, errMsg);
+            return safeResolve({ success: false, dn: dnToModify, error: errMsg });
           }
 
-          const currentUac = parseInt(foundEntry?.userAccountControl || "4096", 10);
-          // Bit 2 (0x0002) is ACCOUNTDISABLE
-          const newUac = disable ? (currentUac | 2) : (currentUac & ~2);
+          console.log(`Conta de computador ${cleanName} (${dnToModify}) ${disable ? 'desativada' : 'reativada'} com sucesso no AD. Novo UAC: ${newUac}`);
 
-          const change = new ldap.Change({
-            operation: "replace",
-            modification: {
-              userAccountControl: String(newUac)
-            }
+          // Update memory cache
+          const existing = globalComputersCache.get(cleanName.toLowerCase());
+          if (existing) {
+            existing.userAccountControl = newUac;
+          }
+
+          safeResolve({ success: true, dn: dnToModify, uac: newUac });
+        });
+      };
+
+      // Subtree search across baseDN if targetDN is not directly verified
+      const doSubtreeSearch = () => {
+        const searchFilter = `(&(objectCategory=computer)(|(sAMAccountName=${cleanName}$)(sAMAccountName=${cleanName})(cn=${cleanName})))`;
+        const searchOpts = {
+          filter: searchFilter,
+          scope: "sub",
+          attributes: ["dn", "distinguishedName", "userAccountControl", "sAMAccountName", "cn"]
+        };
+
+        client.search(cfg.baseDN, searchOpts, (searchErr: any, searchRes: any) => {
+          if (searchErr) {
+            try { client.destroy(); } catch (_) {}
+            return safeResolve({ success: false, error: "Erro na busca do computador no AD: " + searchErr.message });
+          }
+
+          let foundEntry: any = null;
+          searchRes.on("searchEntry", (entry: any) => {
+            foundEntry = entry.object;
           });
 
-          client.modify(targetDN, [change], (modErr: any) => {
+          searchRes.on("error", (sErr: any) => {
             try { client.destroy(); } catch (_) {}
-            if (modErr) {
-              let errMsg = modErr.message || String(modErr);
-              if (modErr.code === 50 || errMsg.toLowerCase().includes("insufficient access")) {
-                errMsg = `Permissão negada no Active Directory (Código 50: Insufficient Access Rights). O usuário '${cfg.username}' não possui direitos de escrita para desativar/modificar contas de computador na OU '${targetDN}'. Delegue permissão de redefinir/desativar conta no AD.`;
-              }
-              console.error(`Erro ao modificar userAccountControl para ${targetDN}:`, errMsg);
-              return safeResolve({ success: false, dn: targetDN, error: errMsg });
+            safeResolve({ success: false, error: "Erro ao localizar objeto de computador no AD: " + sErr.message });
+          });
+
+          searchRes.on("end", () => {
+            const finalDN = foundEntry?.dn || foundEntry?.distinguishedName || targetDN;
+            if (!finalDN) {
+              try { client.destroy(); } catch (_) {}
+              return safeResolve({
+                success: false,
+                error: `Computador '${cleanName}' não foi localizado no domínio (${cfg.baseDN}). Verifique se a conta existe no AD.`
+              });
             }
 
-            console.log(`Conta de computador ${cleanName} (${targetDN}) atualizada com sucesso no AD. Novo UAC: ${newUac}`);
-            safeResolve({ success: true, dn: targetDN, uac: newUac });
+            const currentUac = parseInt(foundEntry?.userAccountControl || String(info.uac || "4096"), 10);
+            executeModify(finalDN, currentUac);
           });
         });
-      });
+      };
+
+      // If we already have a valid targetDN (e.g. from canonical path or cache), verify it with a quick base search
+      if (targetDN) {
+        client.search(
+          targetDN,
+          { scope: "base", attributes: ["dn", "distinguishedName", "userAccountControl", "sAMAccountName", "cn"] },
+          (baseErr: any, baseRes: any) => {
+            if (baseErr) {
+              return doSubtreeSearch();
+            }
+            let baseEntry: any = null;
+            baseRes.on("searchEntry", (entry: any) => {
+              baseEntry = entry.object;
+            });
+            baseRes.on("error", () => {
+              doSubtreeSearch();
+            });
+            baseRes.on("end", () => {
+              if (baseEntry) {
+                const uac = parseInt(baseEntry.userAccountControl || String(info.uac || "4096"), 10);
+                executeModify(targetDN!, uac);
+              } else {
+                doSubtreeSearch();
+              }
+            });
+          }
+        );
+      } else {
+        doSubtreeSearch();
+      }
     });
   });
 }
@@ -2433,7 +2638,7 @@ app.post("/api/ad/computers/update", async (req, res) => {
 
 // POST /api/ad/computers/disable-batch
 app.post("/api/ad/computers/disable-batch", async (req, res) => {
-  const { ids, operator } = req.body;
+  const { ids, computers: compObjects, operator } = req.body;
   const cfg = readConfig();
 
   if (cfg.useDemoMode) {
@@ -2454,25 +2659,39 @@ app.post("/api/ad/computers/disable-batch", async (req, res) => {
       timestamp: getBrazilTimestamp(),
       operator: operator || "admin.silva",
       action: "Desativação em Lote de Computadores",
-      targetUser: `${ids.length} computadores`,
-      details: `${ids.length} computadores obsoletos foram desativados em lote pela política de inatividade do AD (Modo Simulação).`,
+      targetUser: `${ids?.length || 0} computadores`,
+      details: `${ids?.length || 0} computadores obsoletos foram desativados em lote pela política de inatividade do AD (Modo Simulação).`,
       type: "warning"
     });
 
     writeDatabase(db);
-    return res.json({ success: true, count: ids.length });
+    return res.json({ success: true, count: ids?.length || 0 });
   }
 
   // Real Active Directory Batch Disable
+  const itemsToProcess: Array<{ identifier: string; knownDN?: string }> = [];
+
+  if (Array.isArray(compObjects) && compObjects.length > 0) {
+    for (const c of compObjects) {
+      const name = c.name || c.id;
+      const dn = c.dn || c.distinguishedName;
+      itemsToProcess.push({ identifier: name, knownDN: dn });
+    }
+  } else if (Array.isArray(ids)) {
+    for (const id of ids) {
+      itemsToProcess.push({ identifier: id });
+    }
+  }
+
   const results: any[] = [];
   const errors: string[] = [];
 
-  for (const compIdOrName of (ids || [])) {
-    const resDisable = await disableOrEnableComputerInAD(cfg, compIdOrName, undefined, true);
+  for (const item of itemsToProcess) {
+    const resDisable = await disableOrEnableComputerInAD(cfg, item.identifier, item.knownDN, true);
     if (resDisable.success) {
-      results.push({ name: compIdOrName, dn: resDisable.dn });
+      results.push({ name: item.identifier, dn: resDisable.dn });
     } else {
-      errors.push(`${compIdOrName}: ${resDisable.error}`);
+      errors.push(`${item.identifier}: ${resDisable.error}`);
     }
   }
 

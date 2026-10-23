@@ -103,7 +103,7 @@ interface DashboardProps {
   adConnected?: boolean;
   onUpdateComputer?: (computer: ADComputer) => void;
   onUpdateComputerInactivityDays?: (days: number) => void;
-  onDisableBatchComputers?: (ids: string[]) => void;
+  onDisableBatchComputers?: (items: (string | ADComputer)[]) => void;
   onAddAuditLog?: (log: AuditLog) => void;
 }
 
@@ -418,7 +418,8 @@ export default function Dashboard({
     if (selectedCompIds.length === 0) return;
     if (window.confirm(`Confirma a desativação de ${selectedCompIds.length} conta(s) de computador obsoleta(s) no Active Directory?`)) {
       if (onDisableBatchComputers) {
-        onDisableBatchComputers(selectedCompIds);
+        const selectedObjects = (computers || []).filter(c => selectedCompIds.includes(c.id) || selectedCompIds.includes(c.name));
+        onDisableBatchComputers(selectedObjects.length > 0 ? selectedObjects : selectedCompIds);
       }
       setSelectedCompIds([]);
     }
@@ -1347,11 +1348,18 @@ export default function Dashboard({
                         )}
                       </td>
 
-                      {/* OU */}
+                      {/* OU / Localização no AD */}
                       <td className="py-2.5 px-3">
-                        <span className="text-slate-600 font-medium block truncate max-w-xs text-[11px]" title={comp.ou}>
-                          {comp.ou}
-                        </span>
+                        <div className="flex flex-col">
+                          <span className="text-slate-700 font-medium truncate max-w-xs text-[11px]" title={comp.canonicalPath || comp.dn || comp.ou}>
+                            {comp.ou}
+                          </span>
+                          {comp.canonicalPath && (
+                            <span className="text-[9px] text-slate-400 font-mono truncate max-w-xs block -mt-0.5" title={comp.canonicalPath}>
+                              {comp.canonicalPath}
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Last Logon Date */}

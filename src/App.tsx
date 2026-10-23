@@ -205,9 +205,12 @@ export default function App() {
     }
   };
 
-  const handleDisableBatchComputers = async (ids: string[]) => {
+  const handleDisableBatchComputers = async (items: (string | ADComputer)[]) => {
+    const stringIds = items.map(item => typeof item === 'string' ? item : (item.name || item.id));
+    const computerObjects = computers.filter(c => stringIds.includes(c.id) || stringIds.includes(c.name));
+
     // Optimistic UI update
-    const idSet = new Set(ids);
+    const idSet = new Set(stringIds);
     setComputers(prev => prev.map(c => 
       (idSet.has(c.id) || idSet.has(c.name)) ? { ...c, status: 'Desativado' } : c
     ));
@@ -217,7 +220,8 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ids,
+          ids: stringIds,
+          computers: computerObjects.length > 0 ? computerObjects : undefined,
           operator: currentUser ? currentUser.username : 'admin.silva'
         })
       });
@@ -225,6 +229,8 @@ export default function App() {
       const data = await res.json();
       if (!res.ok || data.error) {
         alert(data.error || 'Falha ao desativar computadores em lote no Active Directory.');
+      } else if (data.failedCount && data.failedCount > 0) {
+        alert(`Desativação parcial: ${data.count} computadores desativados, ${data.failedCount} com erro: ${data.errors?.join('\n')}`);
       }
       refreshData();
     } catch (err: any) {

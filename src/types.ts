@@ -62,6 +62,8 @@ export interface ADComputer {
   ou: string; // Unidade Organizacional (e.g., OU=Computadores,OU=TI,DC=empresa,DC=local)
   dn?: string; // Distinguished Name completo no AD (e.g., CN=WKS-01,OU=Estacoes,DC=inema,DC=intranet)
   distinguishedName?: string;
+  canonicalPath?: string; // Caminho canônico no domínio (ex: inema.intranet/WORKSTATION/.../NB-INEMA-12440)
+  guid?: string;
   userAccountControl?: number;
   lastLogon: string; // Último contato / logon no domínio (e.g., "2026-06-20" ou "Nunca")
   pwdLastSet: string;

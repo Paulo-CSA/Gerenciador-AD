@@ -43,7 +43,7 @@ interface AlertsProps {
   computerInactivityDays?: number;
   onUpdateComputer?: (computer: ADComputer) => void;
   onUpdateComputerInactivityDays?: (days: number) => void;
-  onDisableBatchComputers?: (ids: string[]) => void;
+  onDisableBatchComputers?: (items: (string | ADComputer)[]) => void;
   initialSubTab?: 'usuarios' | 'computadores';
 }
 
@@ -337,7 +337,8 @@ export default function Alerts({
     if (selectedCompIds.length === 0) return;
     if (window.confirm(`Confirma a desativação de ${selectedCompIds.length} computador(es) no Active Directory?`)) {
       if (onDisableBatchComputers) {
-        onDisableBatchComputers(selectedCompIds);
+        const selectedObjects = (computers || []).filter(c => selectedCompIds.includes(c.id) || selectedCompIds.includes(c.name));
+        onDisableBatchComputers(selectedObjects.length > 0 ? selectedObjects : selectedCompIds);
       }
       setSelectedCompIds([]);
     }
@@ -830,8 +831,13 @@ export default function Alerts({
                                 </span>
                               )}
                             </div>
-                            <div className="text-[11px] text-slate-400 mt-0.5 flex flex-wrap gap-x-3">
+                            <div className="text-[11px] text-slate-400 mt-0.5 flex flex-wrap gap-x-3 items-center">
                               <span><strong>OU:</strong> {comp.ou}</span>
+                              {comp.canonicalPath && (
+                                <span title={comp.canonicalPath} className="truncate max-w-sm">
+                                  <strong>Caminho AD:</strong> <span className="font-mono text-slate-600">{comp.canonicalPath}</span>
+                                </span>
+                              )}
                               <span><strong>FQDN:</strong> <span className="font-mono">{comp.dnsHostName}</span></span>
                               <span><strong>Último Contato:</strong> <span className="font-mono">{comp.lastLogon}</span></span>
                             </div>
