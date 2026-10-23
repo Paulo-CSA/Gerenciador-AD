@@ -79,12 +79,24 @@ export default function App() {
 
       if (usersRes.ok) {
         const usersData = await usersRes.json();
-        if (Array.isArray(usersData)) setUsers(usersData);
+        if (Array.isArray(usersData)) {
+          setUsers(usersData);
+        } else {
+          setUsers([]);
+        }
+      } else {
+        setUsers([]);
       }
       
       if (computersRes.ok) {
         const computersData = await computersRes.json();
-        if (Array.isArray(computersData)) setComputers(computersData);
+        if (Array.isArray(computersData)) {
+          setComputers(computersData);
+        } else {
+          setComputers([]);
+        }
+      } else {
+        setComputers([]);
       }
 
       if (logsRes.ok) {
@@ -486,6 +498,29 @@ export default function App() {
             </div>
           </div>
 
+          {/* Configuração AD Item */}
+          <div 
+            onClick={() => {
+              setActiveTab('config');
+              setDashboardFilter(null);
+            }}
+            className={`p-3 rounded-md flex items-center justify-between transition-all cursor-pointer ${
+              activeTab === 'config' 
+                ? 'active-nav text-white font-medium' 
+                : 'hover:bg-slate-800 text-slate-300'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Database className="w-4 h-4 opacity-80" />
+              <span className="text-xs opacity-90 font-sans">Configuração AD</span>
+            </div>
+            {!useDemoMode && adConnected && (
+              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+            )}
+            {!useDemoMode && !adConnected && (
+              <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+            )}
+          </div>
 
         </nav>
 
@@ -553,24 +588,39 @@ export default function App() {
             {activeTab === 'config' && 'Configuração de Conexão com AD Local'}
           </h1>
           <div className="flex items-center gap-4 text-xs text-slate-500 font-semibold">
-            <span className="flex items-center gap-1.5">
-              Status AD: 
+            <button
+              type="button"
+              onClick={() => setActiveTab('config')}
+              className="flex items-center gap-2 hover:opacity-85 transition-opacity cursor-pointer"
+              title="Clique para abrir e testar os parâmetros do Active Directory"
+            >
+              <span className="text-slate-400">Status AD:</span>
               {useDemoMode ? (
-                <span className="text-amber-600 font-bold uppercase text-[9px] bg-amber-50 px-2 py-0.5 rounded border border-amber-200/50">
-                  Simulação
+                <span className="text-amber-700 font-bold uppercase text-[10px] bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-md border border-amber-300 flex items-center gap-1.5 transition-colors">
+                  <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                  Modo Simulação
                 </span>
               ) : adConnected ? (
-                <span className="text-green-500 font-bold uppercase text-[9px] bg-green-50 px-2 py-0.5 rounded border border-green-200/50 animate-pulse">
-                  Conectado Real
+                <span className="text-emerald-700 font-bold uppercase text-[10px] bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-md border border-emerald-300 flex items-center gap-1.5 transition-colors">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  AD Real Conectado ({adStatus?.config?.domain || 'inema.intranet'})
                 </span>
               ) : (
-                <span className="text-red-500 font-bold uppercase text-[9px] bg-red-50 px-2 py-0.5 rounded border border-red-200/50">
-                  Desconectado
+                <span className="text-rose-700 font-bold uppercase text-[10px] bg-rose-50 hover:bg-rose-100 px-2.5 py-1 rounded-md border border-rose-300 flex items-center gap-1.5 transition-colors">
+                  <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+                  AD Real Desconectado ({adStatus?.config?.url || '172.16.0.1:389'})
                 </span>
               )}
-            </span>
+            </button>
             <div className="h-4 w-px bg-slate-200"></div>
-            <span>Junho, 2026</span>
+            <span className="font-mono text-slate-600 font-semibold">
+              {(() => {
+                const d = new Date();
+                const day = String(d.getDate()).padStart(2, '0');
+                const month = String(d.getMonth() + 1).padStart(2, '0');
+                return `${day}/${month}/${d.getFullYear()}`;
+              })()}
+            </span>
           </div>
         </header>
 
@@ -590,6 +640,8 @@ export default function App() {
                 computerInactivityDays={computerInactivityDays}
                 onNavigate={handleNavigateFromDashboard}
                 adStatus={adStatus}
+                useDemoMode={useDemoMode}
+                adConnected={adConnected}
                 onUpdateComputer={handleUpdateComputer}
                 onUpdateComputerInactivityDays={handleUpdateComputerInactivityDays}
                 onDisableBatchComputers={handleDisableBatchComputers}

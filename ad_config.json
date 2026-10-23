@@ -1,10 +1,10 @@
 {
-  "url": "ldap://192.168.1.100:389",
-  "baseDN": "DC=empresa,DC=local",
-  "username": "admin@empresa.local",
-  "password": "",
-  "domain": "empresa.local",
-  "useDemoMode": true,
+  "url": "ldap://172.16.0.1:389",
+  "baseDN": "DC=inema,DC=intranet",
+  "username": "sistemas.infra@inema.intranet",
+  "password": "kp2J$FM%^e$mxG",
+  "domain": "inema.intranet",
+  "useDemoMode": false,
   "inactivityDays": 90,
   "computerInactivityDays": 240,
   "functionalLevel": "Windows Server 2012"

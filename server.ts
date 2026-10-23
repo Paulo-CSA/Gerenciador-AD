@@ -32,20 +32,32 @@ const DATABASE_PATH = path.join(process.cwd(), "ad_database.json");
 
 // Default configuration template
 const defaultConfig = {
-  url: "ldap://192.168.1.100:389",
-  baseDN: "DC=empresa,DC=local",
-  username: "admin@empresa.local",
-  password: "Password123",
-  domain: "empresa.local",
-  useDemoMode: true,
+  url: "ldap://172.16.0.1:389",
+  baseDN: "DC=inema,DC=intranet",
+  username: "sistemas.infra@inema.intranet",
+  password: "kp2J$FM%^e$mxG",
+  domain: "inema.intranet",
+  useDemoMode: false,
   inactivityDays: 90,
-  computerInactivityDays: 90,
+  computerInactivityDays: 240,
   functionalLevel: "Windows Server 2012"
 };
 
 // Ensure configuration file exists
 if (!fs.existsSync(CONFIG_PATH)) {
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(defaultConfig, null, 2), "utf8");
+}
+
+function cleanConfigString(val: any): string {
+  if (val === undefined || val === null) return "";
+  let s = String(val).trim();
+  // Strip outer quotes if enclosed
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    s = s.substring(1, s.length - 1).trim();
+  }
+  // Strip leading/trailing dots or extra punctuation from typo inputs
+  s = s.replace(/^[.\s"']+|[.\s"']+$/g, "");
+  return s;
 }
 
 function readConfig() {
@@ -59,38 +71,43 @@ function readConfig() {
     console.error("Erro ao ler ad_config.json:", error);
   }
 
-  // Override with process.env if present
+  // Override with process.env if present (supporting both standard and typo/dot prefix keys)
   let envHasConfig = false;
 
-  if (process.env.LDAP_URL) {
-    cfg.url = process.env.LDAP_URL;
+  const rawUrl = process.env.LDAP_URL || process.env[".LDAP_URL"];
+  if (rawUrl) {
+    cfg.url = cleanConfigString(rawUrl);
     envHasConfig = true;
   }
-  if (process.env.LDAP_BASE_DN) {
-    cfg.baseDN = process.env.LDAP_BASE_DN;
+  const rawBaseDN = process.env.LDAP_BASE_DN || process.env[".LDAP_BASE_DN"];
+  if (rawBaseDN) {
+    cfg.baseDN = cleanConfigString(rawBaseDN);
     envHasConfig = true;
   }
-  if (process.env.LDAP_BIND_DN) {
-    cfg.username = process.env.LDAP_BIND_DN;
+  const rawBindDN = process.env.LDAP_BIND_DN || process.env[".LDAP_BIND_DN"];
+  if (rawBindDN) {
+    cfg.username = cleanConfigString(rawBindDN);
     envHasConfig = true;
   }
-  if (process.env.LDAP_BIND_PASSWORD) {
-    cfg.password = process.env.LDAP_BIND_PASSWORD;
+  const rawPassword = process.env.LDAP_BIND_PASSWORD || process.env[".LDAP_BIND_PASSWORD"];
+  if (rawPassword) {
+    cfg.password = cleanConfigString(rawPassword);
     envHasConfig = true;
   }
-  if (process.env.LDAP_DOMAIN) {
-    cfg.domain = process.env.LDAP_DOMAIN;
+  const rawDomain = process.env.LDAP_DOMAIN || process.env[".LDAP_DOMAIN"];
+  if (rawDomain) {
+    cfg.domain = cleanConfigString(rawDomain);
     envHasConfig = true;
   }
 
-  // If there are real LDAP parameters configured in .env, automatically disable the simulation (demo mode)
+  // If real LDAP parameters are specified in env, default to real mode
   if (envHasConfig) {
     cfg.useDemoMode = false;
   }
 
-  // Allow explicit override of the mode via env variable if needed
-  if (process.env.LDAP_USE_DEMO_MODE !== undefined) {
-    cfg.useDemoMode = process.env.LDAP_USE_DEMO_MODE === "true";
+  const rawDemoMode = process.env.LDAP_USE_DEMO_MODE || process.env[".LDAP_USE_DEMO_MODE"];
+  if (rawDemoMode !== undefined) {
+    cfg.useDemoMode = cleanConfigString(rawDemoMode) === "true";
   }
 
   return cfg;
@@ -2127,111 +2144,101 @@ function generateDemoGPOs() {
 app.get("/api/ad/computers", async (req, res) => {
   const cfg = readConfig();
 
+  // If demo mode is explicitly enabled, return the simulation database
   if (cfg.useDemoMode) {
     const db = readDatabase();
     return res.json(db.computers || []);
   }
 
   // Real AD query for computer objects
-  let responded = false;
-  const safeRespond = (data: any) => {
-    if (!responded) {
-      responded = true;
-      res.json(data);
-    }
-  };
+  try {
+    const adInstance = new ActiveDirectory({
+      url: cfg.url,
+      baseDN: cfg.baseDN,
+      username: cfg.username,
+      password: cfg.password,
+      connectTimeout: 5000
+    });
 
-  const client = ldap.createClient({ url: cfg.url, connectTimeout: 4000 });
-  
-  // Prevent unhandled socket/connection errors from crashing the process
-  client.on("error", (err: any) => {
-    console.warn("Aviso de erro no socket/cliente LDAP para computadores:", err.message);
-    const db = readDatabase();
-    safeRespond(db.computers || []);
-  });
+    const compAttributes = [
+      "dn",
+      "distinguishedName",
+      "cn",
+      "sAMAccountName",
+      "dNSHostName",
+      "operatingSystem",
+      "operatingSystemVersion",
+      "lastLogonTimestamp",
+      "lastLogon",
+      "pwdLastSet",
+      "whenCreated",
+      "userAccountControl",
+      "description",
+      "managedBy",
+      "objectGUID"
+    ];
 
-  client.bind(cfg.username, cfg.password, (bindErr: any) => {
-    if (bindErr) {
-      client.destroy();
-      console.warn("Falha no bind LDAP para computadores, usando fallback:", bindErr.message);
-      const db = readDatabase();
-      return safeRespond(db.computers || []);
-    }
-
-    const opts = {
-      filter: "(|(objectCategory=computer)(objectClass=computer))",
-      scope: "sub",
-      attributes: [
-        "cn",
-        "sAMAccountName",
-        "dNSHostName",
-        "operatingSystem",
-        "operatingSystemVersion",
-        "lastLogonTimestamp",
-        "lastLogon",
-        "pwdLastSet",
-        "whenCreated",
-        "userAccountControl",
-        "distinguishedName",
-        "description"
-      ]
-    };
-
-    client.search(cfg.baseDN, opts, (err: any, searchRes: any) => {
-      if (err) {
-        client.destroy();
-        console.warn("Falha ao buscar computadores no AD:", err.message);
-        const db = readDatabase();
-        return safeRespond(db.computers || []);
-      }
-
-      const computerList: any[] = [];
-      searchRes.on("searchEntry", (entry: any) => {
-        computerList.push(entry.object);
-      });
-
-      searchRes.on("error", (sErr: any) => {
-        console.warn("Erro no stream de busca de computadores:", sErr.message);
-        client.destroy();
-        const db = readDatabase();
-        safeRespond(db.computers || []);
-      });
-
-      searchRes.on("end", () => {
-        client.destroy();
-        if (computerList.length === 0) {
-          const db = readDatabase();
-          return safeRespond(db.computers || []);
+    // Query computers using AD filter (&(objectCategory=computer)(sAMAccountName=*))
+    adInstance.find(
+      {
+        filter: "(&(objectCategory=computer)(sAMAccountName=*))",
+        attributes: compAttributes,
+        paged: { pageSize: 1000 }
+      },
+      (err: any, results: any) => {
+        if (err) {
+          console.error("Erro ao buscar computadores no Active Directory real:", err.message || err);
+          return res.status(503).json({
+            error: `Erro ao buscar computadores no Active Directory (${cfg.url}): ${err.message || err}`,
+            connected: false,
+            isRealAD: true,
+            computers: []
+          });
         }
 
-        const mapped = computerList.map((comp: any, idx: number) => {
-          const rawName = comp.sAMAccountName || comp.samaccountname || comp.cn || `WKS-${idx + 1}`;
+        const rawList = Array.isArray(results)
+          ? results
+          : [...(results?.other || []), ...(results?.users || [])];
+
+        const seenNames = new Set<string>();
+        const mappedComputers: any[] = [];
+
+        for (let idx = 0; idx < rawList.length; idx++) {
+          const comp = rawList[idx];
+          const rawName = comp.sAMAccountName || comp.samaccountname || comp.cn || "";
+          if (!rawName) continue;
+
+          // Strip trailing dollar sign convention from AD machine accounts
           const cleanName = rawName.endsWith("$") ? rawName.slice(0, -1) : rawName;
+          const lowerName = cleanName.toLowerCase();
+          if (seenNames.has(lowerName)) continue;
+          seenNames.add(lowerName);
+
           const uac = parseInt(comp.userAccountControl || comp.useraccountcontrol || "4096", 10);
           const isCompDisabled = (uac & 0x0002) !== 0;
 
           const actualLogon = getActualLastLogon(
-            comp.lastLogonTimestamp || comp.lastlogontimestamp, 
+            comp.lastLogonTimestamp || comp.lastlogontimestamp,
             comp.lastLogon || comp.lastlogon
           );
           const lastLogonValue = actualLogon === "0" ? "Nunca" : safeParseDate(actualLogon, "Nunca");
 
-          let status: 'Ativo' | 'Obsoleto' | 'Desativado' = 'Ativo';
+          let status: "Ativo" | "Obsoleto" | "Desativado" = "Ativo";
           if (isCompDisabled) {
-            status = 'Desativado';
+            status = "Desativado";
           }
 
-          let guid = `c_${idx + 1}`;
+          let guid = comp.distinguishedName || comp.dn || cleanName;
           if (comp.objectGUID || comp.objectguid) {
             const og = comp.objectGUID || comp.objectguid;
             if (Buffer.isBuffer(og)) {
-              guid = og.toString('hex');
+              guid = og.toString("hex");
             } else {
               guid = String(og);
             }
           }
 
-          return {
+          mappedComputers.push({
             id: guid,
             name: cleanName,
             dnsHostName: comp.dNSHostName || comp.dnshostname || `${cleanName}.${cfg.domain}`,
@@ -2243,13 +2250,22 @@ app.get("/api/ad/computers", async (req, res) => {
             status,
             whenCreated: safeParseDate(comp.whenCreated || comp.whencreated, "2024-01-01"),
             description: comp.description || `Computador registrado no domínio ${cfg.domain}`
-          };
-        });
+          });
+        }
 
-        safeRespond(mapped);
-      });
+        // Return the real computers list
+        res.json(mappedComputers);
+      }
+    );
+  } catch (error: any) {
+    console.error("Exceção na consulta de computadores AD:", error);
+    res.status(503).json({
+      error: `Exceção ao conectar no Active Directory (${cfg.url}): ${error.message || error}`,
+      connected: false,
+      isRealAD: true,
+      computers: []
     });
-  });
+  }
 });
 
 // POST /api/ad/computers/update

@@ -99,6 +99,8 @@ interface DashboardProps {
   adStatus?: any;
   computers?: ADComputer[];
   computerInactivityDays?: number;
+  useDemoMode?: boolean;
+  adConnected?: boolean;
   onUpdateComputer?: (computer: ADComputer) => void;
   onUpdateComputerInactivityDays?: (days: number) => void;
   onDisableBatchComputers?: (ids: string[]) => void;
@@ -113,6 +115,8 @@ export default function Dashboard({
   adStatus,
   computers = [],
   computerInactivityDays = 90,
+  useDemoMode = false,
+  adConnected = false,
   onUpdateComputer,
   onUpdateComputerInactivityDays,
   onDisableBatchComputers,
@@ -511,11 +515,100 @@ export default function Dashboard({
             Status geral do domínio e auditorias de contas. Data de referência: <span className="font-mono bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-semibold text-xs">{(() => { const d = new Date(); const day = String(d.getDate()).padStart(2, '0'); const month = String(d.getMonth() + 1).padStart(2, '0'); return `${day}/${month}/${d.getFullYear()}`; })()}</span>
           </p>
         </div>
-        <div className="flex items-center gap-2 text-xs font-medium text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-full self-start md:self-auto">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-          Replicação: Saudável | Servidor: CASANOVA
+        <div className="flex items-center gap-2">
+          {useDemoMode ? (
+            <div className="flex items-center gap-2 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200/60 px-3 py-1.5 rounded-full">
+              <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+              Modo Simulação (Dados de Teste)
+            </div>
+          ) : adConnected ? (
+            <div className="flex items-center gap-2 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-3 py-1.5 rounded-full">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              AD Real: {adStatus?.config?.domain || "inema.intranet"} | Conectado
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-xs font-medium text-rose-700 bg-rose-50 border border-rose-200/60 px-3 py-1.5 rounded-full">
+              <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+              AD Real: {adStatus?.config?.domain || "inema.intranet"} | Desconectado
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Real AD Active Notification Banner */}
+      {!useDemoMode && adConnected && (
+        <div className="bg-emerald-50/90 border border-emerald-200 rounded-2xl p-4 flex items-center justify-between gap-4 text-xs text-emerald-950 animate-fade-in shadow-2xs">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0 border border-emerald-200">
+              <CheckCircle2 className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="font-bold text-emerald-900 text-sm">
+                Conectado ao Active Directory Real ({adStatus?.config?.domain || "inema.intranet"})
+              </p>
+              <p className="text-emerald-700 text-xs mt-0.5">
+                Todos os dados exibidos abaixo (Parque Total, Máquinas Obsoletas e Contas) são lidos em tempo real do seu Controlador de Domínio (<span className="font-mono font-semibold">{adStatus?.config?.url || "ldap://172.16.0.1:389"}</span>).
+              </p>
+            </div>
+          </div>
+          <span className="text-[10px] uppercase font-bold tracking-wider bg-emerald-200 text-emerald-800 px-3 py-1 rounded-full shrink-0">
+            Dados Reais AD
+          </span>
+        </div>
+      )}
+
+      {/* Real AD Disconnected Banner (When in Real mode but connection fails) */}
+      {!useDemoMode && !adConnected && (
+        <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs text-rose-950 animate-fade-in shadow-2xs">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0 border border-rose-200">
+              <ShieldAlert className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="font-bold text-rose-900 text-sm">
+                Modo Active Directory Real Ativado — Sem simulação de dados
+              </p>
+              <p className="text-rose-700 text-xs mt-0.5">
+                Falha ao comunicar com o servidor LDAP em <span className="font-mono font-bold">{adStatus?.config?.url || "ldap://172.16.0.1:389"}</span>. A aplicação não exibirá máquinas nem contas fictícias de simulação.
+                {adStatus?.error && <span className="block mt-1 font-mono text-[11px] bg-rose-100/60 p-1 rounded text-rose-800">Detalhe do erro: {adStatus.error}</span>}
+              </p>
+            </div>
+          </div>
+          <button 
+            type="button"
+            onClick={() => onNavigate('config')}
+            className="px-3.5 py-2 bg-rose-700 hover:bg-rose-800 text-white font-bold rounded-xl shrink-0 transition-colors cursor-pointer shadow-xs"
+          >
+            Ajustar Conexão AD &rarr;
+          </button>
+        </div>
+      )}
+
+      {/* Simulation Banner (If Demo Mode is turned ON) */}
+      {useDemoMode && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs text-amber-950 animate-fade-in shadow-2xs">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0 border border-amber-200">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="font-bold text-amber-900 text-sm">
+                Modo Demonstração (Simulação) Ativo
+              </p>
+              <p className="text-amber-700 text-xs mt-0.5">
+                Os dados exibidos são valores simulados para testes. Para contabilizar e registrar as informações reais do seu AD ({adStatus?.config?.domain || "inema.intranet"}), acerte a conexão real.
+              </p>
+            </div>
+          </div>
+          <button 
+            type="button"
+            onClick={() => onNavigate('config')}
+            className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl shrink-0 transition-colors cursor-pointer shadow-xs"
+          >
+            Usar AD Real &rarr;
+          </button>
+        </div>
+      )}
 
       {/* KPI Stats Grid & Distribuição Global */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fade-in" id="kpi-and-distribution-row">
@@ -1060,13 +1153,25 @@ export default function Dashboard({
           {/* Micro KPI Summary Badges */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-slate-200/50">
             <div className="bg-white p-2.5 rounded-lg border border-slate-100/80">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Parque Total</span>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Parque Total</span>
+                <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${useDemoMode ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-800'}`}>
+                  {useDemoMode ? 'Simulado' : 'AD Real'}
+                </span>
+              </div>
               <span className="text-base font-bold font-display text-slate-800">{totalComputers}</span>
-              <span className="text-[10px] text-slate-400 block -mt-0.5">Máquinas registradas</span>
+              <span className="text-[10px] text-slate-400 block -mt-0.5">
+                {useDemoMode ? 'Máquinas (Simulação)' : `Máquinas em ${adStatus?.config?.domain || 'inema.intranet'}`}
+              </span>
             </div>
 
             <div className="bg-white p-2.5 rounded-lg border border-rose-100 bg-rose-50/20">
-              <span className="text-[10px] font-bold text-rose-600 uppercase tracking-wider block">Obsoletos (+{localComputerDays}d)</span>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-rose-600 uppercase tracking-wider block">Obsoletos (+{localComputerDays}d)</span>
+                <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${useDemoMode ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-800'}`}>
+                  {useDemoMode ? 'Simulado' : 'AD Real'}
+                </span>
+              </div>
               <span className="text-base font-bold font-display text-rose-700">{obsoleteComputers.length}</span>
               <span className="text-[10px] text-rose-600/80 block -mt-0.5">Total enquadrado</span>
             </div>
@@ -1170,7 +1275,19 @@ export default function Dashboard({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 text-slate-600">
-              {filteredObsoleteComputers.length === 0 ? (
+              {computers.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="py-12 text-center text-slate-400 text-xs">
+                    <MonitorX className="w-9 h-9 mx-auto text-slate-300 mb-2" />
+                    <p className="font-bold text-slate-700 text-sm">Nenhum computador registrado</p>
+                    <p className="text-[11px] text-slate-400 mt-1 max-w-md mx-auto">
+                      {!useDemoMode 
+                        ? `O sistema está no Modo Real do Active Directory (${adStatus?.config?.domain || "inema.intranet"}). Verifique a conectividade de rede com o Controlador de Domínio para carregar o inventário de máquinas.`
+                        : 'A base de dados de computadores está vazia.'}
+                    </p>
+                  </td>
+                </tr>
+              ) : filteredObsoleteComputers.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-8 text-center text-slate-400 text-xs">
                     <MonitorCheck className="w-8 h-8 mx-auto text-emerald-500 mb-2 opacity-80" />

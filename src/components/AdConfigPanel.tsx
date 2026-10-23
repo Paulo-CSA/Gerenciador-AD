@@ -21,12 +21,12 @@ interface AdConfigPanelProps {
 
 export default function AdConfigPanel({ onConfigChanged }: AdConfigPanelProps) {
   const [config, setConfig] = useState({
-    url: "ldap://192.168.1.100:389",
-    baseDN: "DC=empresa,DC=local",
-    username: "admin@empresa.local",
+    url: "ldap://172.16.0.1:389",
+    baseDN: "DC=inema,DC=intranet",
+    username: "sistemas.infra@inema.intranet",
     password: "",
-    domain: "empresa.local",
-    useDemoMode: true,
+    domain: "inema.intranet",
+    useDemoMode: false,
     functionalLevel: "Windows Server 2012"
   });
 
@@ -199,7 +199,7 @@ export default function AdConfigPanel({ onConfigChanged }: AdConfigPanelProps) {
                   <span className="absolute left-3 top-2.5 text-slate-400"><Server className="w-4 h-4" /></span>
                   <input 
                     type="text" 
-                    placeholder="ldap://192.168.1.100:389"
+                    placeholder="ldap://172.16.0.1:389"
                     required
                     className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:outline-none"
                     value={config.url}
@@ -215,7 +215,7 @@ export default function AdConfigPanel({ onConfigChanged }: AdConfigPanelProps) {
                   <span className="absolute left-3 top-2.5 text-slate-400"><Database className="w-4 h-4" /></span>
                   <input 
                     type="text" 
-                    placeholder="DC=empresa,DC=local"
+                    placeholder="DC=inema,DC=intranet"
                     required
                     className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:outline-none"
                     value={config.baseDN}
@@ -231,7 +231,7 @@ export default function AdConfigPanel({ onConfigChanged }: AdConfigPanelProps) {
                   <span className="absolute left-3 top-2.5 text-slate-400"><KeyRound className="w-4 h-4" /></span>
                   <input 
                     type="text" 
-                    placeholder="Ex: admin@empresa.local ou CN=Admin,..."
+                    placeholder="Ex: sistemas.infra@inema.intranet ou CN=sistemas..."
                     required
                     className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:outline-none"
                     value={config.username}
