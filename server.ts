@@ -100,11 +100,7 @@ function readConfig() {
     envHasConfig = true;
   }
 
-  // If real LDAP parameters are specified in env, default to real mode
-  if (envHasConfig) {
-    cfg.useDemoMode = false;
-  }
-
+  // Check if explicit demo mode override is provided via environment
   const rawDemoMode = process.env.LDAP_USE_DEMO_MODE || process.env[".LDAP_USE_DEMO_MODE"];
   if (rawDemoMode !== undefined) {
     cfg.useDemoMode = cleanConfigString(rawDemoMode) === "true";
@@ -2245,6 +2241,9 @@ app.get("/api/ad/computers", async (req, res) => {
             operatingSystem: comp.operatingSystem || comp.operatingsystem || "Windows Workstation",
             operatingSystemVersion: comp.operatingSystemVersion || comp.operatingsystemversion || "",
             ou: extractOU(comp.dn || comp.distinguishedName || comp.distinguishedname || "", "Computadores"),
+            dn: comp.dn || comp.distinguishedName || comp.distinguishedname || "",
+            distinguishedName: comp.dn || comp.distinguishedName || comp.distinguishedname || "",
+            userAccountControl: uac,
             lastLogon: lastLogonValue,
             pwdLastSet: safeParseDate(comp.pwdLastSet || comp.pwdlastset, "Nunca"),
             status,
@@ -2268,6 +2267,108 @@ app.get("/api/ad/computers", async (req, res) => {
   }
 });
 
+/**
+ * Helper to dynamically locate a computer by name/DN and update its userAccountControl in Active Directory
+ */
+async function disableOrEnableComputerInAD(
+  cfg: any,
+  computerName: string,
+  knownDN: string | undefined,
+  disable: boolean
+): Promise<{ success: boolean; dn?: string; uac?: number; error?: string }> {
+  return new Promise((resolve) => {
+    let resolved = false;
+    const safeResolve = (res: { success: boolean; dn?: string; uac?: number; error?: string }) => {
+      if (!resolved) {
+        resolved = true;
+        resolve(res);
+      }
+    };
+
+    const client = ldap.createClient({ url: cfg.url, connectTimeout: 5000 });
+
+    client.on("error", (err: any) => {
+      console.warn("Erro de conexão no cliente LDAP durante desativação de máquina:", err.message);
+      safeResolve({ success: false, error: "Erro de conexão com Active Directory: " + err.message });
+    });
+
+    client.bind(cfg.username, cfg.password, (bindErr: any) => {
+      if (bindErr) {
+        try { client.destroy(); } catch (_) {}
+        return safeResolve({
+          success: false,
+          error: `Falha na autenticação (Bind) com o AD: ${bindErr.message}. Verifique as permissões de ${cfg.username}`
+        });
+      }
+
+      const cleanName = computerName.endsWith("$") ? computerName.slice(0, -1) : computerName;
+
+      // Search across the entire baseDN to find the exact DN and current userAccountControl
+      const searchOpts = {
+        filter: `(&(objectCategory=computer)(|(sAMAccountName=${cleanName}$)(sAMAccountName=${cleanName})(cn=${cleanName})))`,
+        scope: "sub",
+        attributes: ["dn", "distinguishedName", "userAccountControl", "sAMAccountName", "cn"]
+      };
+
+      client.search(cfg.baseDN, searchOpts, (searchErr: any, searchRes: any) => {
+        if (searchErr) {
+          try { client.destroy(); } catch (_) {}
+          return safeResolve({ success: false, error: "Erro na busca do computador no AD: " + searchErr.message });
+        }
+
+        let foundEntry: any = null;
+
+        searchRes.on("searchEntry", (entry: any) => {
+          foundEntry = entry.object;
+        });
+
+        searchRes.on("error", (sErr: any) => {
+          try { client.destroy(); } catch (_) {}
+          safeResolve({ success: false, error: "Erro ao localizar objeto de computador no AD: " + sErr.message });
+        });
+
+        searchRes.on("end", () => {
+          const targetDN = foundEntry?.dn || foundEntry?.distinguishedName || (knownDN && knownDN.includes("DC=") ? knownDN : null);
+
+          if (!targetDN) {
+            try { client.destroy(); } catch (_) {}
+            return safeResolve({
+              success: false,
+              error: `Computador '${cleanName}' não foi localizado no domínio (${cfg.baseDN}). Verifique se a conta existe no AD.`
+            });
+          }
+
+          const currentUac = parseInt(foundEntry?.userAccountControl || "4096", 10);
+          // Bit 2 (0x0002) is ACCOUNTDISABLE
+          const newUac = disable ? (currentUac | 2) : (currentUac & ~2);
+
+          const change = new ldap.Change({
+            operation: "replace",
+            modification: {
+              userAccountControl: String(newUac)
+            }
+          });
+
+          client.modify(targetDN, [change], (modErr: any) => {
+            try { client.destroy(); } catch (_) {}
+            if (modErr) {
+              let errMsg = modErr.message || String(modErr);
+              if (modErr.code === 50 || errMsg.toLowerCase().includes("insufficient access")) {
+                errMsg = `Permissão negada no Active Directory (Código 50: Insufficient Access Rights). O usuário '${cfg.username}' não possui direitos de escrita para desativar/modificar contas de computador na OU '${targetDN}'. Delegue permissão de redefinir/desativar conta no AD.`;
+              }
+              console.error(`Erro ao modificar userAccountControl para ${targetDN}:`, errMsg);
+              return safeResolve({ success: false, dn: targetDN, error: errMsg });
+            }
+
+            console.log(`Conta de computador ${cleanName} (${targetDN}) atualizada com sucesso no AD. Novo UAC: ${newUac}`);
+            safeResolve({ success: true, dn: targetDN, uac: newUac });
+          });
+        });
+      });
+    });
+  });
+}
+
 // POST /api/ad/computers/update
 app.post("/api/ad/computers/update", async (req, res) => {
   const { id, updatedComputer, operator } = req.body;
@@ -2276,7 +2377,9 @@ app.post("/api/ad/computers/update", async (req, res) => {
   if (cfg.useDemoMode) {
     const db = readDatabase();
     if (Array.isArray(db.computers)) {
-      db.computers = db.computers.map((c: any) => c.id === id ? { ...c, ...updatedComputer } : c);
+      db.computers = db.computers.map((c: any) => 
+        (c.id === id || c.name === updatedComputer?.name) ? { ...c, ...updatedComputer } : c
+      );
     }
 
     db.logs.unshift({
@@ -2285,7 +2388,7 @@ app.post("/api/ad/computers/update", async (req, res) => {
       operator: operator || "admin.silva",
       action: updatedComputer.status === 'Desativado' ? "Desativação de Computador" : "Modificação de Computador",
       targetUser: updatedComputer.name || id,
-      details: `Conta de máquina ${updatedComputer.name} atualizada no AD. Status: ${updatedComputer.status}. Motivo: Gestão de Ativos Obsoletos.`,
+      details: `Conta de máquina ${updatedComputer.name} atualizada no AD (Modo Simulação). Status: ${updatedComputer.status}. Motivo: Gestão de Ativos Obsoletos.`,
       type: updatedComputer.status === 'Desativado' ? "danger" : "info"
     });
 
@@ -2293,68 +2396,114 @@ app.post("/api/ad/computers/update", async (req, res) => {
     return res.json({ success: true, computer: updatedComputer });
   }
 
-  // Real AD modification
-  const client = ldap.createClient({ url: cfg.url, connectTimeout: 4000 });
-  client.bind(cfg.username, cfg.password, (bindErr: any) => {
-    if (bindErr) {
-      client.destroy();
-      return res.status(500).json({ error: "Erro de bind com AD: " + bindErr.message });
-    }
+  // Real Active Directory modification
+  const compName = updatedComputer?.name || id;
+  const compDN = updatedComputer?.dn || updatedComputer?.distinguishedName;
+  const shouldDisable = updatedComputer?.status === 'Desativado';
 
-    const computerDN = updatedComputer.ou?.includes("DC=") 
-      ? updatedComputer.ou 
-      : `CN=${updatedComputer.name},CN=Computers,${cfg.baseDN}`;
+  const result = await disableOrEnableComputerInAD(cfg, compName, compDN, shouldDisable);
 
-    // Disable computer account: WORKSTATION_TRUST_ACCOUNT (4096) + ACCOUNTDISABLE (2) = 4098
-    const uac = updatedComputer.status === 'Desativado' ? "4098" : "4096";
-
-    const modifications = [
-      new ldap.Change({
-        operation: "replace",
-        modification: {
-          userAccountControl: uac,
-          description: updatedComputer.description || "Gerenciado via Console AD"
-        }
-      })
-    ];
-
-    client.modify(computerDN, modifications, (modErr: any) => {
-      client.destroy();
-      if (modErr) {
-        console.warn("Aviso ao modificar computador no AD:", modErr.message);
-      }
-      res.json({ success: true, computer: updatedComputer });
+  if (!result.success) {
+    console.error("Falha ao modificar computador no AD Real:", result.error);
+    return res.status(500).json({ 
+      success: false, 
+      error: result.error || "Não foi possível desativar a conta de computador no Active Directory." 
     });
+  }
+
+  // Record audit log
+  const db = readDatabase();
+  db.logs.unshift({
+    id: "log_" + Date.now(),
+    timestamp: getBrazilTimestamp(),
+    operator: operator || cfg.username || "sistemas.infra",
+    action: shouldDisable ? "Desativação de Computador no AD Real" : "Reativação de Computador no AD Real",
+    targetUser: compName,
+    details: `Conta de máquina ${compName} (${result.dn}) foi ${shouldDisable ? 'desativada' : 'reativada'} com sucesso no controlador de domínio (${cfg.domain}). UAC: ${result.uac}.`,
+    type: shouldDisable ? "danger" : "success"
+  });
+  writeDatabase(db);
+
+  return res.json({ 
+    success: true, 
+    computer: { ...updatedComputer, dn: result.dn, status: shouldDisable ? 'Desativado' : 'Ativo' },
+    message: `Conta de máquina ${compName} ${shouldDisable ? 'desativada' : 'reativada'} com sucesso no Active Directory!`
   });
 });
 
 // POST /api/ad/computers/disable-batch
 app.post("/api/ad/computers/disable-batch", async (req, res) => {
   const { ids, operator } = req.body;
-  const db = readDatabase();
-  const idSet = new Set(ids || []);
+  const cfg = readConfig();
 
-  if (Array.isArray(db.computers)) {
-    db.computers = db.computers.map((c: any) => {
-      if (idSet.has(c.id)) {
-        return { ...c, status: 'Desativado' };
-      }
-      return c;
+  if (cfg.useDemoMode) {
+    const db = readDatabase();
+    const idSet = new Set(ids || []);
+
+    if (Array.isArray(db.computers)) {
+      db.computers = db.computers.map((c: any) => {
+        if (idSet.has(c.id) || idSet.has(c.name)) {
+          return { ...c, status: 'Desativado' };
+        }
+        return c;
+      });
+    }
+
+    db.logs.unshift({
+      id: "log_" + Date.now(),
+      timestamp: getBrazilTimestamp(),
+      operator: operator || "admin.silva",
+      action: "Desativação em Lote de Computadores",
+      targetUser: `${ids.length} computadores`,
+      details: `${ids.length} computadores obsoletos foram desativados em lote pela política de inatividade do AD (Modo Simulação).`,
+      type: "warning"
     });
+
+    writeDatabase(db);
+    return res.json({ success: true, count: ids.length });
   }
 
+  // Real Active Directory Batch Disable
+  const results: any[] = [];
+  const errors: string[] = [];
+
+  for (const compIdOrName of (ids || [])) {
+    const resDisable = await disableOrEnableComputerInAD(cfg, compIdOrName, undefined, true);
+    if (resDisable.success) {
+      results.push({ name: compIdOrName, dn: resDisable.dn });
+    } else {
+      errors.push(`${compIdOrName}: ${resDisable.error}`);
+    }
+  }
+
+  // Record audit log
+  const db = readDatabase();
   db.logs.unshift({
     id: "log_" + Date.now(),
     timestamp: getBrazilTimestamp(),
-    operator: operator || "admin.silva",
-    action: "Desativação em Lote de Computadores",
-    targetUser: `${ids.length} computadores`,
-    details: `${ids.length} computadores obsoletos foram desativados em lote pela política de inatividade do AD.`,
-    type: "warning"
+    operator: operator || cfg.username || "sistemas.infra",
+    action: "Desativação em Lote no AD Real",
+    targetUser: `${results.length} computadores`,
+    details: `${results.length} computadores obsoletos foram desativados com sucesso no domínio ${cfg.domain}.${errors.length > 0 ? ` Erros (${errors.length}): ${errors.join("; ")}` : ""}`,
+    type: errors.length > 0 ? "warning" : "danger"
   });
-
   writeDatabase(db);
-  return res.json({ success: true, count: ids.length });
+
+  if (results.length === 0 && errors.length > 0) {
+    return res.status(500).json({ 
+      success: false, 
+      count: 0, 
+      error: `Falha ao desativar computadores no Active Directory: ${errors[0]}`,
+      errors 
+    });
+  }
+
+  return res.json({ 
+    success: true, 
+    count: results.length, 
+    failedCount: errors.length,
+    errors: errors.length > 0 ? errors : undefined 
+  });
 });
 
 

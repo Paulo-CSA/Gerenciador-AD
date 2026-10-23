@@ -177,8 +177,13 @@ export default function App() {
   };
 
   const handleUpdateComputer = async (updatedComputer: ADComputer) => {
+    // Optimistic UI update so the change is instantly visible
+    setComputers(prev => prev.map(c => 
+      (c.id === updatedComputer.id || c.name === updatedComputer.name) ? { ...c, ...updatedComputer } : c
+    ));
+
     try {
-      await fetch('/api/ad/computers/update', {
+      const res = await fetch('/api/ad/computers/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -187,15 +192,28 @@ export default function App() {
           operator: currentUser ? currentUser.username : 'admin.silva'
         })
       });
+
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        alert(data.error || 'Não foi possível desativar a conta de computador no Active Directory.');
+      }
       refreshData();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao atualizar computador no AD:', err);
+      alert('Falha na comunicação ao tentar desativar computador: ' + (err.message || err));
+      refreshData();
     }
   };
 
   const handleDisableBatchComputers = async (ids: string[]) => {
+    // Optimistic UI update
+    const idSet = new Set(ids);
+    setComputers(prev => prev.map(c => 
+      (idSet.has(c.id) || idSet.has(c.name)) ? { ...c, status: 'Desativado' } : c
+    ));
+
     try {
-      await fetch('/api/ad/computers/disable-batch', {
+      const res = await fetch('/api/ad/computers/disable-batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -203,9 +221,16 @@ export default function App() {
           operator: currentUser ? currentUser.username : 'admin.silva'
         })
       });
+
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        alert(data.error || 'Falha ao desativar computadores em lote no Active Directory.');
+      }
       refreshData();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao desativar computadores em lote no AD:', err);
+      alert('Falha na comunicação ao desativar computadores: ' + (err.message || err));
+      refreshData();
     }
   };
 

@@ -60,6 +60,9 @@ export interface ADComputer {
   operatingSystem: string; // e.g., "Windows 11 Enterprise"
   operatingSystemVersion?: string; // e.g., "23H2"
   ou: string; // Unidade Organizacional (e.g., OU=Computadores,OU=TI,DC=empresa,DC=local)
+  dn?: string; // Distinguished Name completo no AD (e.g., CN=WKS-01,OU=Estacoes,DC=inema,DC=intranet)
+  distinguishedName?: string;
+  userAccountControl?: number;
   lastLogon: string; // Último contato / logon no domínio (e.g., "2026-06-20" ou "Nunca")
   pwdLastSet: string;
   status: 'Ativo' | 'Obsoleto' | 'Desativado';
