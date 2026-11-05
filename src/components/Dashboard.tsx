@@ -38,7 +38,9 @@ import {
   CheckSquare,
   Square,
   Check,
-  Download
+  Download,
+  Network,
+  User
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -427,20 +429,21 @@ export default function Dashboard({
 
   const handleExportComputersCSV = () => {
     if (obsoleteComputers.length === 0) return;
-    const headers = ['Nome do Computador', 'Nome DNS (FQDN)', 'Sistema Operacional', 'Versao', 'Unidade Organizacional (OU)', 'Ultimo Logon', 'Dias Sem Comunicacao', 'Status', 'IP', 'Descricao'];
+    const headers = ['Nome do Computador', 'Nome DNS (FQDN)', 'Endereco IP', 'Ultimo Usuario / Responsavel', 'Sistema Operacional', 'Versao', 'Unidade Organizacional (OU)', 'Ultimo Logon', 'Dias Sem Comunicacao', 'Status', 'Descricao'];
     const rows = [headers.join(';')];
     obsoleteComputers.forEach(c => {
       const days = getComputerDaysInactive(c.lastLogon);
       const row = [
         `"${c.name}"`,
         `"${c.dnsHostName}"`,
+        `"${c.ipAddress || 'Dinâmico (DHCP)'}"`,
+        `"${c.lastUser || c.managedBy || 'Não registrado'}"`,
         `"${c.operatingSystem}"`,
         `"${c.operatingSystemVersion || ''}"`,
         `"${c.ou}"`,
         `"${c.lastLogon}"`,
         `"${days}"`,
         `"${c.status}"`,
-        `"${c.ipAddress || ''}"`,
         `"${c.description || ''}"`
       ];
       rows.push(row.join(';'));
@@ -1274,6 +1277,8 @@ export default function Dashboard({
                   </button>
                 </th>
                 <th className="py-2.5 px-3">Nome da Máquina / FQDN</th>
+                <th className="py-2.5 px-3">Endereço IP</th>
+                <th className="py-2.5 px-3">Último Usuário</th>
                 <th className="py-2.5 px-3">Sistema Operacional</th>
                 <th className="py-2.5 px-3">Unidade Organizacional (OU)</th>
                 <th className="py-2.5 px-3">Último Contato AD</th>
@@ -1285,7 +1290,7 @@ export default function Dashboard({
             <tbody className="divide-y divide-slate-50 text-slate-600">
               {computers.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400 text-xs">
+                  <td colSpan={10} className="py-12 text-center text-slate-400 text-xs">
                     <MonitorX className="w-9 h-9 mx-auto text-slate-300 mb-2" />
                     <p className="font-bold text-slate-700 text-sm">Nenhum computador registrado</p>
                     <p className="text-[11px] text-slate-400 mt-1 max-w-md mx-auto">
@@ -1297,7 +1302,7 @@ export default function Dashboard({
                 </tr>
               ) : filteredObsoleteComputers.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-8 text-center text-slate-400 text-xs">
+                  <td colSpan={10} className="py-8 text-center text-slate-400 text-xs">
                     <MonitorCheck className="w-8 h-8 mx-auto text-emerald-500 mb-2 opacity-80" />
                     Nenhum computador obsoleto encontrado para o limite de <strong className="text-slate-700">{localComputerDays} dias</strong>.
                   </td>
@@ -1344,6 +1349,36 @@ export default function Dashboard({
                             <span className="font-bold text-slate-800 text-xs block">{comp.name}</span>
                             <span className="text-[10px] text-slate-400 block -mt-0.5">{comp.dnsHostName}</span>
                           </div>
+                        </div>
+                      </td>
+
+                      {/* Endereço IP */}
+                      <td className="py-2.5 px-3 font-mono">
+                        <div className="flex items-center gap-1.5">
+                          <Network className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span className={`text-[11px] font-semibold ${
+                            comp.ipAddress && comp.ipAddress !== 'Dinâmico (DHCP)' 
+                              ? 'text-slate-800 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200/60' 
+                              : 'text-slate-400 italic'
+                          }`}>
+                            {comp.ipAddress || 'Dinâmico (DHCP)'}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Último Usuário */}
+                      <td className="py-2.5 px-3">
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-5 h-5 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center shrink-0 border border-slate-200/60">
+                            <User className="w-3 h-3" />
+                          </div>
+                          <span className={`text-xs font-semibold truncate max-w-[120px] ${
+                            comp.lastUser && comp.lastUser !== 'Não registrado' 
+                              ? 'text-slate-800' 
+                              : 'text-slate-400 italic'
+                          }`} title={comp.lastUser || comp.managedBy || 'Não registrado'}>
+                            {comp.lastUser || comp.managedBy || 'Não registrado'}
+                          </span>
                         </div>
                       </td>
 

@@ -70,8 +70,9 @@ export interface ADComputer {
   status: 'Ativo' | 'Obsoleto' | 'Desativado';
   whenCreated: string;
   description?: string;
-  ipAddress?: string;
-  managedBy?: string;
+  ipAddress?: string; // Endereço IP da máquina (ex: 172.16.45.112 ou Dinâmico)
+  managedBy?: string; // Responsável registrado no AD
+  lastUser?: string; // Último usuário que logou na máquina
 }
 
 export interface ComputerInactivitySetting {

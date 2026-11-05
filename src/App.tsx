@@ -94,6 +94,8 @@ export default function App() {
         const computersData = await computersRes.json();
         if (Array.isArray(computersData)) {
           setComputers(computersData);
+        } else if (Array.isArray(computersData?.computers)) {
+          setComputers(computersData.computers);
         } else {
           setComputers([]);
         }

@@ -254,6 +254,16 @@ interface CachedADComputer {
   userAccountControl: number;
 }
 const globalComputersCache = new Map<string, CachedADComputer>();
+const dnsIpCache = new Map<string, string>();
+
+function asyncLookupHost(fqdn: string) {
+  if (!fqdn || dnsIpCache.has(fqdn)) return;
+  dns.lookup(fqdn, { family: 4 }, (err, address) => {
+    if (!err && address) {
+      dnsIpCache.set(fqdn, address);
+    }
+  });
+}
 
 /**
  * Converts an LDAP DN (e.g. CN=NB-INEMA-12440,OU=NOTEBOOKS,OU=ZOOLOGICO,OU=UR-PARQUES-POSTOS AVANCADOS,OU=WORKSTATION,DC=inema,DC=intranet)
@@ -977,8 +987,29 @@ function getDemoComputers(domain: string = "inema.intranet") {
       description: 'Servidor legado de testes de homologação - sem comunicação com PDC há mais de 8 meses',
       ipAddress: '172.16.0.77',
       managedBy: 'admin.silva'
+    },
+    {
+      id: 'NB-INEMA-12440',
+      name: 'NB-INEMA-12440',
+      dnsHostName: `NB-INEMA-12440.${domain}`,
+      operatingSystem: 'Windows 11 Enterprise',
+      operatingSystemVersion: '23H2 (Build 22631)',
+      ou: 'NOTEBOOKS/ZOOLOGICO/UR-PARQUES-POSTOS AVANCADOS/WORKSTATION',
+      canonicalPath: `${domain}/WORKSTATION/UR-PARQUES-POSTOS AVANCADOS/ZOOLOGICO/NOTEBOOKS/NB-INEMA-12440`,
+      dn: `CN=NB-INEMA-12440,OU=NOTEBOOKS,OU=ZOOLOGICO,OU=UR-PARQUES-POSTOS AVANCADOS,OU=WORKSTATION,DC=inema,DC=intranet`,
+      lastLogon: computePastDateServer(124),
+      pwdLastSet: computePastDateServer(124),
+      status: 'Obsoleto',
+      whenCreated: '2023-08-10',
+      description: 'Notebook de campo - Zoológico / Postos Avançados (Usuário: roberto.almeida)',
+      ipAddress: '172.16.45.112',
+      managedBy: 'roberto.almeida',
+      lastUser: 'roberto.almeida'
     }
-  ];
+  ].map(comp => ({
+    ...comp,
+    lastUser: (comp as any).lastUser || comp.managedBy || (comp.name.startsWith('SRV') ? 'SYSTEM (Servidor)' : 'admin.silva')
+  }));
 }
 
 // Ensure local database exists for simulation
@@ -2320,7 +2351,11 @@ app.get("/api/ad/computers", async (req, res) => {
       "managedBy",
       "objectGUID",
       "objectSid",
-      "canonicalName"
+      "canonicalName",
+      "ipHostNumber",
+      "networkAddress",
+      "comment",
+      "location"
     ];
 
     // Query computers using AD filter (&(objectCategory=computer)(sAMAccountName=*))
@@ -2412,11 +2447,60 @@ app.get("/api/ad/computers", async (req, res) => {
           if (fullDN) globalComputersCache.set(fullDN.toLowerCase(), cacheEntry);
           if (canonicalPath) globalComputersCache.set(canonicalPath.toLowerCase(), cacheEntry);
 
+          const fqdn = comp.dNSHostName || comp.dnshostname || `${cleanName}.${cfg.domain}`;
+          asyncLookupHost(fqdn);
+
+          // 1. IP resolution: check AD attribute, regex in description/comment, or DNS cache
+          let ipAddress = comp.ipHostNumber || comp.iphostnumber || comp.networkAddress || comp.networkaddress || "";
+          if (Array.isArray(ipAddress)) ipAddress = ipAddress[0];
+          ipAddress = String(ipAddress || "").trim();
+
+          if (!ipAddress && (comp.description || comp.comment)) {
+            const combinedText = `${comp.description || ""} ${comp.comment || ""}`;
+            const ipMatch = combinedText.match(/\b(?:10\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}\b/);
+            if (ipMatch) {
+              ipAddress = ipMatch[0];
+            }
+          }
+
+          if (!ipAddress) {
+            if (dnsIpCache.has(fqdn)) {
+              ipAddress = dnsIpCache.get(fqdn)!;
+            } else {
+              ipAddress = "Dinâmico (DHCP)";
+            }
+          }
+
+          // 2. Last logged / assigned user extraction
+          let lastUser = "";
+          if (comp.managedBy || comp.managedby) {
+            const mb = String(comp.managedBy || comp.managedby);
+            const cnMatch = mb.match(/CN\s*=\s*([^,]+)/i);
+            lastUser = cnMatch ? cnMatch[1].trim() : mb.trim();
+          }
+
+          if (!lastUser && comp.description) {
+            const desc = String(comp.description);
+            const userMatch = desc.match(/(?:usu[aá]rio|user|respons[aá]vel|colaborador)\s*[:=-]?\s*([a-zA-ZÀ-ÿ0-9._\s-]+)/i)
+                           || desc.match(/-\s*([a-zA-ZÀ-ÿ0-9._\s-]+)$/i);
+            if (userMatch) {
+              lastUser = userMatch[1].trim();
+            }
+          }
+
+          if (!lastUser) {
+            if (cleanName.toLowerCase().startsWith("srv")) {
+              lastUser = "SYSTEM (Servidor)";
+            } else {
+              lastUser = "Não registrado";
+            }
+          }
+
           mappedComputers.push({
             id: cleanName, // CRITICAL: Always use machine name (e.g. NB-INEMA-12440), never raw SID/GUID
             name: cleanName,
             guid: guid,
-            dnsHostName: comp.dNSHostName || comp.dnshostname || `${cleanName}.${cfg.domain}`,
+            dnsHostName: fqdn,
             operatingSystem: comp.operatingSystem || comp.operatingsystem || "Windows Workstation",
             operatingSystemVersion: comp.operatingSystemVersion || comp.operatingsystemversion || "",
             ou: ouDisplay,
@@ -2428,7 +2512,10 @@ app.get("/api/ad/computers", async (req, res) => {
             pwdLastSet: safeParseDate(comp.pwdLastSet || comp.pwdlastset, "Nunca"),
             status,
             whenCreated: safeParseDate(comp.whenCreated || comp.whencreated, "2024-01-01"),
-            description: comp.description || `Computador registrado no domínio ${cfg.domain}`
+            description: comp.description || `Computador registrado no domínio ${cfg.domain}`,
+            ipAddress: ipAddress,
+            managedBy: comp.managedBy || comp.managedby || "",
+            lastUser: lastUser
           });
         }
 
