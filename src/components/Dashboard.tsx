@@ -1040,10 +1040,17 @@ export default function Dashboard({
               Exportar CSV ({obsoleteComputers.length})
             </button>
             <button
-              onClick={() => onNavigate('alertas', 'computadores')}
-              className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold rounded-xl border border-blue-200/60 transition-colors cursor-pointer"
+              onClick={() => onNavigate('maquinas')}
+              className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-colors cursor-pointer shadow-xs"
+              title="Abrir o novo painel completo de Gerenciar Máquinas do AD"
             >
-              Abrir em Alertas &rarr;
+              Gerenciar Todas as Máquinas &rarr;
+            </button>
+            <button
+              onClick={() => onNavigate('alertas', 'computadores')}
+              className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold rounded-xl border border-slate-200/60 transition-colors cursor-pointer"
+            >
+              Alertas &rarr;
             </button>
           </div>
         </div>

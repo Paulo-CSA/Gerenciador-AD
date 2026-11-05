@@ -1590,17 +1590,43 @@ app.post("/api/ad/users/update", async (req, res) => {
       uac = "514"; // NORMAL_ACCOUNT + ACCOUNTDISABLE
     }
 
-    const modifications = [
+    const modifications: any[] = [
       new ldap.Change({
         operation: "replace",
         modification: {
-          userAccountControl: uac,
-          department: updatedUser.department,
-          title: updatedUser.title,
-          telephoneNumber: updatedUser.phone
+          type: "userAccountControl",
+          values: [String(uac)]
         }
       })
     ];
+
+    if (updatedUser.department) {
+      modifications.push(new ldap.Change({
+        operation: "replace",
+        modification: {
+          type: "department",
+          values: [String(updatedUser.department)]
+        }
+      }));
+    }
+    if (updatedUser.title) {
+      modifications.push(new ldap.Change({
+        operation: "replace",
+        modification: {
+          type: "title",
+          values: [String(updatedUser.title)]
+        }
+      }));
+    }
+    if (updatedUser.phone) {
+      modifications.push(new ldap.Change({
+        operation: "replace",
+        modification: {
+          type: "telephoneNumber",
+          values: [String(updatedUser.phone)]
+        }
+      }));
+    }
 
     client.modify(userDN, modifications, (modErr: any) => {
       client.destroy();
@@ -1653,13 +1679,15 @@ app.post("/api/ad/users/reset-password", async (req, res) => {
       new ldap.Change({
         operation: "replace",
         modification: {
-          unicodePwd: buffer
+          type: "unicodePwd",
+          values: [buffer]
         }
       }),
       new ldap.Change({
         operation: "replace",
         modification: {
-          pwdLastSet: "0" // Forces 'Must Change Password on Next Logon'
+          type: "pwdLastSet",
+          values: ["0"] // Forces 'Must Change Password on Next Logon'
         }
       })
     ];
@@ -2465,39 +2493,52 @@ async function disableOrEnableComputerInAD(
       }
 
       // Execution helper to modify userAccountControl attribute
-      const executeModify = (dnToModify: string, currentUacVal: number) => {
-        const currentUac = isNaN(currentUacVal) || currentUacVal <= 0 ? 4096 : currentUacVal;
-        // Bit 2 (0x0002) is ACCOUNTDISABLE
-        const newUac = disable ? (currentUac | 2) : (currentUac & ~2);
-
-        const change = new ldap.Change({
-          operation: "replace",
-          modification: {
-            userAccountControl: String(newUac)
+      const executeModify = (dnToModify: string, currentUacVal: any) => {
+        try {
+          let currentUac = 4096;
+          if (Array.isArray(currentUacVal)) {
+            currentUac = parseInt(String(currentUacVal[0]), 10) || 4096;
+          } else if (currentUacVal !== undefined && currentUacVal !== null) {
+            currentUac = parseInt(String(currentUacVal), 10) || 4096;
           }
-        });
 
-        client.modify(dnToModify, [change], (modErr: any) => {
-          try { client.destroy(); } catch (_) {}
-          if (modErr) {
-            let errMsg = modErr.message || String(modErr);
-            if (modErr.code === 50 || errMsg.toLowerCase().includes("insufficient access")) {
-              errMsg = `Permissão negada no Active Directory (Código 50: Insufficient Access Rights). O usuário '${cfg.username}' não possui direitos de escrita para desativar/modificar contas de computador na OU '${dnToModify}'. Delegue permissão de redefinir/desativar conta no AD.`;
+          // Bit 2 (0x0002) is ACCOUNTDISABLE
+          const newUac = disable ? (currentUac | 2) : (currentUac & ~2);
+
+          const change = new ldap.Change({
+            operation: "replace",
+            modification: {
+              type: "userAccountControl",
+              values: [String(newUac)]
             }
-            console.error(`Erro ao modificar userAccountControl para ${dnToModify}:`, errMsg);
-            return safeResolve({ success: false, dn: dnToModify, error: errMsg });
-          }
+          });
 
-          console.log(`Conta de computador ${cleanName} (${dnToModify}) ${disable ? 'desativada' : 'reativada'} com sucesso no AD. Novo UAC: ${newUac}`);
+          client.modify(dnToModify, [change], (modErr: any) => {
+            try { client.destroy(); } catch (_) {}
+            if (modErr) {
+              let errMsg = modErr.message || String(modErr);
+              if (modErr.code === 50 || errMsg.toLowerCase().includes("insufficient access")) {
+                errMsg = `Permissão negada no Active Directory (Código 50: Insufficient Access Rights). O usuário '${cfg.username}' não possui direitos de escrita para desativar/modificar contas de computador na OU '${dnToModify}'. Delegue permissão de redefinir/desativar conta no AD.`;
+              }
+              console.error(`Erro ao modificar userAccountControl para ${dnToModify}:`, errMsg);
+              return safeResolve({ success: false, dn: dnToModify, error: errMsg });
+            }
 
-          // Update memory cache
-          const existing = globalComputersCache.get(cleanName.toLowerCase());
-          if (existing) {
-            existing.userAccountControl = newUac;
-          }
+            console.log(`Conta de computador ${cleanName} (${dnToModify}) ${disable ? 'desativada' : 'reativada'} com sucesso no AD. Novo UAC: ${newUac}`);
 
-          safeResolve({ success: true, dn: dnToModify, uac: newUac });
-        });
+            // Update memory cache
+            const existing = globalComputersCache.get(cleanName.toLowerCase());
+            if (existing) {
+              existing.userAccountControl = newUac;
+            }
+
+            safeResolve({ success: true, dn: dnToModify, uac: newUac });
+          });
+        } catch (modifyEx: any) {
+          try { client.destroy(); } catch (_) {}
+          console.error("Exceção ao executar modify no AD:", modifyEx);
+          safeResolve({ success: false, error: "Exceção ao modificar objeto no AD: " + (modifyEx.message || modifyEx) });
+        }
       };
 
       // Subtree search across baseDN if targetDN is not directly verified

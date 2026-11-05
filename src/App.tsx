@@ -18,7 +18,8 @@ import {
   Clock,
   Shield,
   FileCode,
-  LogOut
+  LogOut,
+  Monitor
 } from 'lucide-react';
 
 import { ADUser, AuditLog, ADComputer } from './types';
@@ -27,6 +28,7 @@ import { initialUsers, initialAuditLogs } from './mockData';
 // Component Imports
 import Dashboard from './components/Dashboard';
 import UserManagement from './components/UserManagement';
+import ComputerManagement from './components/ComputerManagement';
 import Groups from './components/Groups';
 import Reports from './components/Reports';
 import Alerts from './components/Alerts';
@@ -360,6 +362,7 @@ export default function App() {
   const activeAlertsCount = activeUserAlerts + activeComputerAlerts;
 
   const blockedUsersCount = users.filter(u => u.status === 'Bloqueada').length;
+  const disabledComputersCount = computers.filter(c => c.status === 'Desativado').length;
 
   if (!currentUser) {
     return (
@@ -421,6 +424,29 @@ export default function App() {
             {blockedUsersCount > 0 && (
               <span className="bg-red-500 text-white font-bold font-mono text-[9px] px-1.5 py-0.5 rounded-full">
                 {blockedUsersCount}
+              </span>
+            )}
+          </div>
+
+          {/* Computers / Machines Item */}
+          <div 
+            onClick={() => {
+              setActiveTab('maquinas');
+              setDashboardFilter(null);
+            }}
+            className={`p-3 rounded-md flex items-center justify-between transition-all cursor-pointer ${
+              activeTab === 'maquinas' 
+                ? 'active-nav text-white font-medium' 
+                : 'hover:bg-slate-800 text-slate-300'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Monitor className="w-4 h-4 opacity-80" />
+              <span className="text-xs opacity-90">Gerenciar Máquinas</span>
+            </div>
+            {disabledComputersCount > 0 && (
+              <span className="bg-slate-700 text-slate-200 font-bold font-mono text-[9px] px-1.5 py-0.5 rounded-full" title={`${disabledComputersCount} máquinas desativadas no AD`}>
+                {disabledComputersCount}
               </span>
             )}
           </div>
@@ -610,6 +636,7 @@ export default function App() {
           <h1 className="text-lg font-semibold text-slate-800 font-display">
             {activeTab === 'dashboard' && 'Visão Geral do Domínio'}
             {activeTab === 'contas' && 'Gerenciamento de Objetos de Contas'}
+            {activeTab === 'maquinas' && 'Inventário e Gerenciamento de Máquinas AD'}
             {activeTab === 'grupos' && 'Grupos de Segurança e Distribuição'}
             {activeTab === 'gpos' && 'Diretivas de Políticas de Grupo (GPO)'}
             {activeTab === 'scripts' && 'Scripts de Logon de Inicialização (.BAT)'}
@@ -695,6 +722,25 @@ export default function App() {
                 onAddAuditLog={handleAddAuditLog}
                 dashboardFilter={dashboardFilter}
                 onClearDashboardFilter={() => setDashboardFilter(null)}
+              />
+            </motion.div>
+          )}
+
+          {activeTab === 'maquinas' && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25 }}
+            >
+              <ComputerManagement 
+                computers={computers}
+                onUpdateComputer={handleUpdateComputer}
+                onDisableBatchComputers={handleDisableBatchComputers}
+                onAddAuditLog={handleAddAuditLog}
+                computerInactivityDays={computerInactivityDays}
+                useDemoMode={useDemoMode}
+                adConnected={adConnected}
+                adStatus={adStatus}
               />
             </motion.div>
           )}
