@@ -115,7 +115,7 @@ export default function ComputerManagement({
   // Filtered computer records
   const filteredComputers = useMemo(() => {
     return computers.filter(comp => {
-      // 1. Search term (Name, FQDN, Operating System, OU, Canonical Path, IP, Last User)
+      // 1. Search term (Name, FQDN, Operating System, OU, Canonical Path, IP)
       const term = searchTerm.toLowerCase();
       const matchesSearch = 
         comp.name.toLowerCase().includes(term) ||
@@ -123,9 +123,7 @@ export default function ComputerManagement({
         comp.operatingSystem.toLowerCase().includes(term) ||
         comp.ou.toLowerCase().includes(term) ||
         (comp.canonicalPath && comp.canonicalPath.toLowerCase().includes(term)) ||
-        (comp.ipAddress && comp.ipAddress.toLowerCase().includes(term)) ||
-        (comp.lastUser && comp.lastUser.toLowerCase().includes(term)) ||
-        (comp.managedBy && comp.managedBy.toLowerCase().includes(term));
+        (comp.ipAddress && comp.ipAddress.toLowerCase().includes(term));
 
       if (!matchesSearch) return false;
 
@@ -253,7 +251,6 @@ export default function ComputerManagement({
       'Nome da Maquina',
       'Nome DNS (FQDN)',
       'Endereco IP',
-      'Ultimo Usuario / Responsavel',
       'Sistema Operacional',
       'Versao do SO',
       'Unidade Organizacional (OU)',
@@ -273,7 +270,6 @@ export default function ComputerManagement({
         `"${comp.name}"`,
         `"${comp.dnsHostName}"`,
         `"${comp.ipAddress || 'Dinâmico (DHCP)'}"`,
-        `"${comp.lastUser || 'Não registrado'}"`,
         `"${comp.operatingSystem}"`,
         `"${comp.operatingSystemVersion || ''}"`,
         `"${comp.ou}"`,
@@ -444,7 +440,7 @@ export default function ComputerManagement({
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input 
               type="text"
-              placeholder="Buscar por máquina (ex: NB-INEMA-12440), IP, usuário, FQDN, OU..."
+              placeholder="Buscar por máquina (ex: NB-INEMA-12440), IP, FQDN, OU..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
@@ -592,7 +588,6 @@ export default function ComputerManagement({
                 </th>
                 <th className="py-3 px-3">Nome da Máquina / FQDN</th>
                 <th className="py-3 px-3">Endereço IP</th>
-                <th className="py-3 px-3">Último Usuário</th>
                 <th className="py-3 px-3">Sistema Operacional</th>
                 <th className="py-3 px-3">Unidade Organizacional (OU)</th>
                 <th className="py-3 px-3">Último Contato AD</th>
@@ -603,7 +598,7 @@ export default function ComputerManagement({
             <tbody className="divide-y divide-slate-50 text-slate-600">
               {filteredComputers.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-400">
+                  <td colSpan={8} className="py-12 text-center text-slate-400">
                     <Monitor className="w-8 h-8 mx-auto text-slate-300 mb-2" />
                     <p className="font-bold text-slate-700 text-sm">Nenhuma máquina encontrada</p>
                     <p className="text-xs text-slate-400 mt-1">
@@ -678,29 +673,6 @@ export default function ComputerManagement({
                           }`}>
                             {comp.ipAddress || 'Dinâmico (DHCP)'}
                           </span>
-                        </div>
-                      </td>
-
-                      {/* Último Usuário que logou / Responsável */}
-                      <td className="py-3 px-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center shrink-0 border border-slate-200/60">
-                            <User className="w-3.5 h-3.5" />
-                          </div>
-                          <div className="min-w-0">
-                            <span className={`block text-xs font-semibold truncate max-w-[130px] ${
-                              comp.lastUser && comp.lastUser !== 'Não registrado' 
-                                ? 'text-slate-800' 
-                                : 'text-slate-400 italic'
-                            }`} title={comp.lastUser || comp.managedBy || 'Não registrado'}>
-                              {comp.lastUser || comp.managedBy || 'Não registrado'}
-                            </span>
-                            {comp.managedBy && comp.managedBy !== comp.lastUser && (
-                              <span className="text-[9px] text-slate-400 block truncate max-w-[130px]" title={`Responsável: ${comp.managedBy}`}>
-                                Resp: {comp.managedBy}
-                              </span>
-                            )}
-                          </div>
                         </div>
                       </td>
 
@@ -913,10 +885,10 @@ export default function ComputerManagement({
                 </div>
               </div>
 
-              {/* Rede & Último Usuário Registrado */}
+              {/* Conectividade de Rede (IP) */}
               <div className="space-y-3">
                 <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  Rede & Último Usuário Registrado
+                  Conectividade de Rede (IP)
                 </h4>
                 <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 space-y-3">
                   <div className="flex justify-between items-center">
@@ -941,23 +913,6 @@ export default function ComputerManagement({
                       )}
                     </div>
                   </div>
-
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-500 font-medium flex items-center gap-1.5">
-                      <User className="w-3.5 h-3.5 text-indigo-500" />
-                      Último Usuário (Logon):
-                    </span>
-                    <span className="font-semibold text-slate-800 bg-indigo-50 text-indigo-700 px-2.5 py-0.5 rounded-full border border-indigo-200/60">
-                      {selectedComputer.lastUser || selectedComputer.managedBy || 'Não registrado'}
-                    </span>
-                  </div>
-
-                  {selectedComputer.managedBy && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-500 font-medium">Responsável Registrado no AD:</span>
-                      <span className="font-medium text-slate-700">{selectedComputer.managedBy}</span>
-                    </div>
-                  )}
 
                   {selectedComputer.description && (
                     <div className="pt-2 border-t border-slate-200/60">
