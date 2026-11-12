@@ -318,6 +318,33 @@
   ],
   "logs": [
     {
+      "id": "log_1794514569484",
+      "timestamp": "2026-11-12 17:16:09",
+      "operator": "admin.silva",
+      "action": "Envio de Alerta na Rede",
+      "targetUser": "1 máquina(s): NB-INEMA-12440",
+      "details": "[INFO] \"Teste Smoke MSG\" processada para 1 máquina(s): NB-INEMA-12440 (1 com entrega/canal ativo, 0 pendente(s)).",
+      "type": "info"
+    },
+    {
+      "id": "log_1794514569470",
+      "timestamp": "2026-11-12 17:16:09",
+      "operator": "admin.silva",
+      "action": "Envio de Alerta na Rede",
+      "targetUser": "2 máquina(s): NB-INEMA-12440, NB-INEMA-99999",
+      "details": "[URGENT] \"Teste Smoke MSG\" processada para 2 máquina(s): NB-INEMA-12440, NB-INEMA-99999 (2 com entrega/canal ativo, 0 pendente(s)).",
+      "type": "danger"
+    },
+    {
+      "id": "log_1794514554283",
+      "timestamp": "2026-11-12 17:15:54",
+      "operator": "admin.silva",
+      "action": "Envio de Alerta na Rede",
+      "targetUser": "2 máquina(s): NB-INEMA-12440, NB-INEMA-99999",
+      "details": "[URGENT] \"Teste Smoke MSG\" processada para 2 máquina(s): NB-INEMA-12440, NB-INEMA-99999 (0 com entrega/canal ativo, 2 pendente(s)).",
+      "type": "danger"
+    },
+    {
       "id": "log_1794513272455",
       "timestamp": "2026-11-12 16:54:32",
       "operator": "admin.silva",

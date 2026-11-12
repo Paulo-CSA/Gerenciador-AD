@@ -2889,11 +2889,13 @@ interface ServerBroadcastMessage {
   receipts: Array<{
     machineName: string;
     ipAddress?: string;
-    status: "pendente" | "entregue" | "confirmada";
+    status: "pendente" | "entregue" | "confirmada" | "falha";
     deliveredAt?: string;
     acknowledgedAt?: string;
     acknowledgedBy?: string;
+    errorDetail?: string;
   }>;
+  gatewayDispatchedAt?: string;
 }
 
 interface WsClientMeta {
@@ -2914,10 +2916,13 @@ interface PollingAgentMeta {
   connectedAt: string;
   lastSeenMs: number;
   lastSeenAt: string;
+  isGateway?: boolean;
 }
 
 const connectedWsClients = new Map<string, WsClientMeta>();
 const connectedPollingAgents = new Map<string, PollingAgentMeta>();
+const connectedMsgGateways = new Map<string, PollingAgentMeta>();
+const pendingGatewayMessageIds = new Set<string>();
 const sseClients = new Map<string, { res: express.Response; machineName: string }>();
 
 function normalizeHostKey(name?: string): string {
@@ -2930,6 +2935,12 @@ function cleanupExpiredPollingAgents(): boolean {
   for (const [key, meta] of connectedPollingAgents.entries()) {
     if (now - meta.lastSeenMs > 45000) {
       connectedPollingAgents.delete(key);
+      changed = true;
+    }
+  }
+  for (const [key, meta] of connectedMsgGateways.entries()) {
+    if (now - meta.lastSeenMs > 45000) {
+      connectedMsgGateways.delete(key);
       changed = true;
     }
   }
@@ -2969,7 +2980,7 @@ function getConnectedWorkstationsSnapshot() {
     machineName: string;
     username: string;
     role: "workstation" | "console";
-    channel: "websocket" | "powershell_agent";
+    channel: "websocket" | "powershell_agent" | "msg_gateway";
     ip: string;
     connectedAt: string;
     lastSeenAt?: string;
@@ -3009,6 +3020,19 @@ function getConnectedWorkstationsSnapshot() {
     }
   }
 
+  for (const gw of connectedMsgGateways.values()) {
+    list.push({
+      clientId: gw.clientId,
+      machineName: gw.machineName,
+      username: gw.username,
+      role: "workstation",
+      channel: "msg_gateway",
+      ip: gw.ip,
+      connectedAt: gw.connectedAt,
+      lastSeenAt: gw.lastSeenAt
+    });
+  }
+
   return list;
 }
 
@@ -3035,7 +3059,7 @@ function broadcastWsEvent(eventType: string, payload: any, targetMode?: "all" | 
     }
   }
 
-  // Also push to SSE workstation listeners (PowerShell / HTTP stream agents)
+  // Also push to SSE workstation listeners
   if (eventType === "message:broadcast") {
     for (const sse of sseClients.values()) {
       const mUpper = normalizeHostKey(sse.machineName);
@@ -3191,15 +3215,17 @@ function buildTargetReceipts(
   return { receipts, onlineWsOrSseMap, onlinePollingMap };
 }
 
-function sendMsgExeToWindowsHost(host: string, text: string): Promise<boolean> {
+function sendMsgExeToWindowsHost(host: string, text: string): Promise<{ ok: boolean; error?: string }> {
   return new Promise((resolve) => {
-    if (process.platform !== "win32") return resolve(false);
+    if (process.platform !== "win32") return resolve({ ok: false, error: "Servidor em Linux" });
     execFile(
       "msg.exe",
       ["*", `/SERVER:${host}`, "/TIME:0", text],
       { timeout: 4500, windowsHide: true },
-      (err) => {
-        resolve(!err);
+      (err, stdout, stderr) => {
+        if (!err) return resolve({ ok: true });
+        const detail = (stderr || stdout || err.message || "Falha no msg.exe").trim();
+        resolve({ ok: false, error: detail });
       }
     );
   });
@@ -3212,6 +3238,7 @@ export interface DispatchDeliverySummary {
   nativePushAttempted: boolean;
   nativePushSucceeded: number;
   nativePushFailed: number;
+  gatewayOnline: boolean;
   serverPlatform: string;
   offlineMachines: string[];
 }
@@ -3220,6 +3247,7 @@ async function dispatchBroadcastMessage(
   messageId: string,
   triggeredByScheduler: boolean = false
 ): Promise<{ message: ServerBroadcastMessage; deliverySummary: DispatchDeliverySummary } | null> {
+  cleanupExpiredPollingAgents();
   const messages = readMessages();
   const idx = messages.findIndex((m) => m.id === messageId);
   if (idx === -1) return null;
@@ -3251,18 +3279,25 @@ async function dispatchBroadcastMessage(
     await Promise.all(
       targetsToPush.map(async (rec) => {
         const targetHost = rec.ipAddress || rec.machineName;
-        const ok = await sendMsgExeToWindowsHost(targetHost, formattedMsg);
-        if (ok) {
+        const result = await sendMsgExeToWindowsHost(targetHost, formattedMsg);
+        if (result.ok) {
           nativePushSucceeded++;
           if (rec.status === "pendente") {
             rec.status = "entregue";
             rec.deliveredAt = nowTs;
+            rec.errorDetail = undefined;
           }
         } else {
           nativePushFailed++;
+          if (rec.status === "pendente") {
+            rec.errorDetail = result.error;
+          }
         }
       })
     );
+  } else if (process.platform !== "win32" && msg.deliveryMethod !== "realtime_agent") {
+    // Queue for any connected Windows msg.exe Gateway inside the domain
+    pendingGatewayMessageIds.add(msg.id);
   }
 
   if (msg.scheduleType === "immediate" || msg.scheduleType === "once") {
@@ -3282,11 +3317,17 @@ async function dispatchBroadcastMessage(
   messages[idx] = msg;
   writeMessages(messages);
 
+  const gatewayOnline = connectedMsgGateways.size > 0;
   let onlineAgentCount = 0;
   const offlineMachines: string[] = [];
   for (const r of msg.receipts) {
     const key = normalizeHostKey(r.machineName);
-    const hasLiveChannel = r.status !== "pendente" || onlineWsOrSseMap.has(key) || onlinePollingMap.has(key);
+    const hasLiveChannel =
+      r.status === "entregue" ||
+      r.status === "confirmada" ||
+      onlineWsOrSseMap.has(key) ||
+      onlinePollingMap.has(key) ||
+      (gatewayOnline && msg.deliveryMethod !== "realtime_agent");
     if (hasLiveChannel) {
       onlineAgentCount++;
     } else {
@@ -3301,6 +3342,7 @@ async function dispatchBroadcastMessage(
     nativePushAttempted,
     nativePushSucceeded,
     nativePushFailed,
+    gatewayOnline,
     serverPlatform: process.platform,
     offlineMachines: offlineMachines.slice(0, 12)
   };
@@ -3317,7 +3359,7 @@ async function dispatchBroadcastMessage(
     operator: triggeredByScheduler ? "Agendador Automático" : (msg.sender || "admin.silva"),
     action: triggeredByScheduler ? "Disparo Automático de Mensagem" : "Envio de Alerta na Rede",
     targetUser: targetLabel,
-    details: `[${msg.urgency.toUpperCase()}] "${msg.title}" processada para ${targetLabel} (${onlineAgentCount} com canal ativo, ${deliverySummary.pendingAgentCount} aguardando agente/push).`,
+    details: `[${msg.urgency.toUpperCase()}] "${msg.title}" processada para ${targetLabel} (${onlineAgentCount} com entrega/canal ativo, ${deliverySummary.pendingAgentCount} pendente(s)).`,
     type: msg.urgency === "urgent" ? "danger" : msg.urgency === "warning" ? "warning" : "info"
   });
   writeDatabase(db);
@@ -3351,6 +3393,49 @@ setInterval(() => {
   }
 }, 10000);
 
+function generateWindowsMsgBatScript(opts: {
+  title: string;
+  body: string;
+  urgency: string;
+  targetMode: "all" | "selected";
+  targetMachines: string[];
+}) {
+  const badge =
+    opts.urgency === "urgent" ? "ALERTA URGENTE" : opts.urgency === "warning" ? "AVISO DE ATENCAO" : "COMUNICADO DE TI";
+  const cleanTitle = (opts.title || "Comunicado de TI").replace(/["%\r\n]/g, " ").trim();
+  const cleanBody = (opts.body || "Mensagem administrativa enviada pelo setor de TI.").replace(/["%]/g, " ").replace(/\r?\n/g, " ").trim();
+  const machines = opts.targetMachines.length > 0 ? opts.targetMachines : ["NB-INEMA-12440"];
+
+  if (opts.targetMode === "all") {
+    return `@echo off
+chcp 65001 >nul
+REM Envio nativo via msg.exe para todas as maquinas ativas listadas ou via consulta AD
+echo Preparando envio via Windows MSG (${badge})...
+for /f "delims=" %%M in ('dsquery computer -limit 0 -o rdn 2^>nul') do (
+    echo Enviando para %%~M...
+    msg.exe * /SERVER:%%~M /TIME:0 "[${badge}] ${cleanTitle} - ${cleanBody}"
+)
+pause
+`;
+  }
+
+  const lines = machines.map(
+    (m) => `echo Enviando pop-up nativo Windows para ${m}...\nmsg.exe * /SERVER:${m} /TIME:0 "[${badge}] ${cleanTitle} - ${cleanBody}"`
+  );
+
+  return `@echo off
+chcp 65001 >nul
+REM ========================================================================
+REM Disparo Nativo via Windows msg.exe (Sem PowerShell / Zero Risco EDR)
+REM ========================================================================
+${lines.join("\n\n")}
+
+echo.
+echo Concluido.
+pause
+`;
+}
+
 function generatePushPowerShellScript(opts: {
   title: string;
   body: string;
@@ -3360,7 +3445,6 @@ function generatePushPowerShellScript(opts: {
   domain: string;
   serverUrl: string;
   messageId?: string;
-  requireAck?: boolean;
 }) {
   const safeTitle = (opts.title || "Comunicado de TI").replace(/"/g, '`"');
   const safeBody = (opts.body || "Mensagem administrativa enviada pelo setor de TI.").replace(/"/g, '`"');
@@ -3368,7 +3452,7 @@ function generatePushPowerShellScript(opts: {
     opts.targetMode === "all"
       ? `# Busca automaticamente todas as maquinas ativas no Active Directory (${opts.domain})
 Import-Module ActiveDirectory -ErrorAction SilentlyContinue
-$Targets = (Get-ADComputer -Filter {Enabled -eq $true} -Properties DNSHostName).Name
+$Targets = (Get-ADComputer -Filter {Enabled -eq $true} -Properties Name).Name
 if (-not $Targets) {
     Write-Warning "Modulo ActiveDirectory indisponivel. Informe os hostnames manualmente."
     $Targets = @()
@@ -3378,108 +3462,36 @@ $Targets = @(
 ${(opts.targetMachines.length > 0 ? opts.targetMachines : ["NB-INEMA-12440"]).map((m) => `    "${m}"`).join(",\n")}
 )`;
 
-  const urgencyColor =
-    opts.urgency === "urgent" ? "#DC2626" : opts.urgency === "warning" ? "#D97706" : "#2563EB";
   const urgencyLabel =
-    opts.urgency === "urgent" ? "ALERTA URGENTE / CRITICO" : opts.urgency === "warning" ? "AVISO DE ATENCAO" : "COMUNICADO INFORMATIVO";
+    opts.urgency === "urgent" ? "ALERTA URGENTE" : opts.urgency === "warning" ? "AVISO DE ATENCAO" : "COMUNICADO DE TI";
 
   return `<#
 .SYNOPSIS
-    Disparo Remoto de Pop-up Desktop em Tempo Real via PowerShell (Active Directory)
+    Disparo Nativo de Mensagens via Windows msg.exe para estacoes do Active Directory
 .DESCRIPTION
-    Envia alertas graficos (WPF na sessao interativa do usuario via WinRM/ScheduledTask) e mensagens
-    nativas RPC (msg.exe) diretamente da estacao do administrador para as maquinas da rede ${opts.domain}.
-    Reporta automaticamente o recebimento ao painel DirectoryAdmin.
+    Arquivo local nativo que utiliza exclusivamente o utilitario C:\\Windows\\System32\\msg.exe
+    do Windows para exibir a janela de aviso diretamente na tela do usuario logado.
 #>
 
 [CmdletBinding()]
 param(
     [string]$Titulo = "${safeTitle}",
     [string]$Mensagem = "${safeBody}",
-    [ValidateSet("info","warning","urgent")]
-    [string]$Urgencia = "${opts.urgency}",
     [string]$ServerApiUrl = "${opts.serverUrl}",
     [string]$MessageId = "${opts.messageId || ""}"
 )
 
-[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-
 ${targetBlock}
 
-Write-Host "Iniciando disparo [${urgencyLabel}] para $($Targets.Count) estacao(oes)..." -ForegroundColor Cyan
-
-# Script de Pop-up WPF que sera executado NA SESSAO INTERATIVA do usuario logado
-$PopupPayloadScript = @"
-Add-Type -AssemblyName PresentationFramework -ErrorAction SilentlyContinue
-[xml]\`$xaml = @'
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        Title="${urgencyLabel}" Height="290" Width="500" WindowStartupLocation="CenterScreen"
-        Topmost="True" WindowStyle="None" AllowsTransparency="True" Background="Transparent" ShowInTaskbar="True">
-    <Border CornerRadius="12" Background="#FFFFFF" BorderBrush="${urgencyColor}" BorderThickness="2.5">
-        <Grid>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="54"/>
-                <RowDefinition Height="*"/>
-                <RowDefinition Height="58"/>
-            </Grid.RowDefinitions>
-            <Border Grid.Row="0" Background="${urgencyColor}" CornerRadius="10,10,0,0" Padding="18,0">
-                <TextBlock Text="${urgencyLabel} — $($Titulo.Replace("'","''"))" Foreground="#FFFFFF" FontWeight="Bold" FontSize="14" VerticalAlignment="Center"/>
-            </Border>
-            <ScrollViewer Grid.Row="1" Margin="18,14">
-                <TextBlock Text="$($Mensagem.Replace("'","''"))" TextWrapping="Wrap" FontSize="13.5" Foreground="#1E293B"/>
-            </ScrollViewer>
-            <Border Grid.Row="2" Background="#F8FAFC" CornerRadius="0,0,10,10" Padding="18,0" BorderBrush="#E2E8F0" BorderThickness="0,1,0,0">
-                <Button Name="BtnOk" Content="Li e estou ciente" Width="170" Height="34" HorizontalAlignment="Right"
-                        Background="${urgencyColor}" Foreground="#FFFFFF" FontWeight="Bold" BorderThickness="0" Cursor="Hand"/>
-            </Border>
-        </Grid>
-    </Border>
-</Window>
-'@
-try {
-    \`$reader = New-Object System.Xml.XmlNodeReader \`$xaml
-    \`$window = [Windows.Markup.XamlReader]::Load(\`$reader)
-    \`$btn = \`$window.FindName("BtnOk")
-    \`$btn.Add_Click({ \`$window.Close() })
-    \`$window.Add_ContentRendered({ \`$window.Activate(); \`$window.Focus() })
-    [System.Media.SystemSounds]::Exclamation.Play()
-    \`$null = \`$window.ShowDialog()
-} catch {}
-"@
-
-$EncodedPopup = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($PopupPayloadScript))
+Write-Host "Disparando alerta nativo Windows (msg.exe) para $($Targets.Count) estacao(oes)..." -ForegroundColor Cyan
+$MsgTexto = "[${urgencyLabel}] $Titulo\`r\`n\`r\`n$Mensagem"
 
 foreach ($Machine in $Targets) {
-    Write-Host " -> Enviando para $Machine..." -NoNewline
-    $Delivered = $false
-
+    Write-Host " -> $Machine..." -NoNewline
     if (Test-Connection -ComputerName $Machine -Count 1 -Quiet -ErrorAction SilentlyContinue) {
-        # 1. Envio nativo rapido via RPC/Terminal Services (msg.exe) - nao exige WinRM
-        try {
-            $formatted = "[${urgencyLabel}] $Titulo\`r\`n\`r\`n$Mensagem"
-            & msg.exe * /SERVER:$Machine /TIME:0 "$formatted" 2>$null
-            if ($LASTEXITCODE -eq 0) { $Delivered = $true }
-        } catch {}
-
-        # 2. Se WinRM estiver ativo, cria tarefa interativa temporaria para exibir a janela WPF na tela do usuario logado
-        try {
-            Invoke-Command -ComputerName $Machine -ErrorAction Stop -ScriptBlock {
-                param($B64)
-                $loggedUser = (Get-CimInstance Win32_ComputerSystem).UserName
-                if (-not $loggedUser) { return }
-                $taskName = "DirectoryAdminPopup_" + [guid]::NewGuid().ToString("N").Substring(0,8)
-                $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -WindowStyle Hidden -EncodedCommand $B64"
-                $principal = New-ScheduledTaskPrincipal -UserId $loggedUser -LogonType Interactive -RunLevel Limited
-                Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Force | Out-Null
-                Start-ScheduledTask -TaskName $taskName
-                Start-Sleep -Seconds 2
-                Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
-            } -ArgumentList $EncodedPopup
-            $Delivered = $true
-        } catch {}
-
-        if ($Delivered) {
-            Write-Host " [OK - Pop-up exibido na estacao]" -ForegroundColor Green
+        $output = & msg.exe * /SERVER:$Machine /TIME:0 "$MsgTexto" 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host " [OK - Exibido na tela via msg.exe]" -ForegroundColor Green
             if ($MessageId -and $ServerApiUrl) {
                 try {
                     $bodyJson = @{ machineName = $Machine } | ConvertTo-Json
@@ -3487,139 +3499,86 @@ foreach ($Machine in $Targets) {
                 } catch {}
             }
         } else {
-            Write-Host " [Falha RPC/WinRM - Verifique Firewall / AllowRemoteRPC]" -ForegroundColor Red
+            Write-Host " [Falha msg.exe: $output]" -ForegroundColor Red
         }
     } else {
-        Write-Host " [Offline / Sem resposta na rede]" -ForegroundColor Yellow
+        Write-Host " [Offline / Sem resposta ICMP]" -ForegroundColor Yellow
     }
 }
 `;
 }
 
-function generateAgentPowerShellScript(serverUrl: string) {
+function generateMsgGatewayScript(serverUrl: string) {
   return `<#
 .SYNOPSIS
-    Agente Receptor de Pop-ups em Tempo Real (DirectoryAdmin Desktop Agent)
+    Despachante Central Windows msg.exe (DirectoryAdmin MSG Gateway)
 .DESCRIPTION
-    Instalar via GPO (Logon Script ou Tarefa Agendada no contexto do usuario logado).
-    Conecta em tempo real ao servidor DirectoryAdmin, aparece como Online no painel,
-    exibe pop-ups modernos WPF com nivel de urgencia, reproduz alerta sonoro e envia ACK.
+    Execute este script em UM servidor Windows ou PC de TI dentro da rede interna.
+    Ele NAO precisa ser instalado nas estacoes dos usuarios e utiliza apenas
+    leitura da fila JSON no painel e disparo nativo via C:\\Windows\\System32\\msg.exe.
 #>
 
 param(
     [string]$ServerUrl = "${serverUrl}",
-    [int]$PollIntervalSeconds = 3
+    [int]$IntervaloSegundos = 3
 )
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-Add-Type -AssemblyName PresentationFramework
-Add-Type -AssemblyName System.Windows.Forms
+$GatewayHost = $env:COMPUTERNAME
+$GatewayUser = $env:USERNAME
 
-$MachineName = $env:COMPUTERNAME
-$Username = $env:USERNAME
-$SeenIds = New-Object 'System.Collections.Generic.HashSet[string]'
-
-function Show-DesktopAlertPopup {
-    param($MsgObj)
-
-    $urgency = $MsgObj.urgency
-    $colorHex = "#2563EB"
-    $badgeText = "COMUNICADO DE TI"
-    if ($urgency -eq "warning") {
-        $colorHex = "#D97706"
-        $badgeText = "AVISO IMPORTANTE"
-    } elseif ($urgency -eq "urgent") {
-        $colorHex = "#DC2626"
-        $badgeText = "ALERTA URGENTE"
-    }
-
-    if ($MsgObj.playSound -eq $true) {
-        if ($urgency -eq "urgent") { [System.Media.SystemSounds]::Hand.Play() }
-        else { [System.Media.SystemSounds]::Exclamation.Play() }
-    }
-
-    $escapedTitle = [System.Security.SecurityElement]::Escape($MsgObj.title)
-    $escapedBody  = [System.Security.SecurityElement]::Escape($MsgObj.body)
-    $escapedMeta  = [System.Security.SecurityElement]::Escape("Enviado por: $($MsgObj.sender) | Estacao: $MachineName | Usuario: $Username")
-
-    [xml]$xaml = @"
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        Title="$badgeText" Height="310" Width="520" WindowStartupLocation="CenterScreen"
-        Topmost="True" WindowStyle="None" AllowsTransparency="True" Background="Transparent" ShowInTaskbar="True">
-    <Border CornerRadius="14" Background="#FFFFFF" BorderBrush="$colorHex" BorderThickness="2.5">
-        <Border.Effect>
-            <DropShadowEffect BlurRadius="22" ShadowDepth="4" Opacity="0.35"/>
-        </Border.Effect>
-        <Grid>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="58"/>
-                <RowDefinition Height="*"/>
-                <RowDefinition Height="62"/>
-            </Grid.RowDefinitions>
-            <Border Grid.Row="0" Background="$colorHex" CornerRadius="11,11,0,0" Padding="20,0">
-                <StackPanel VerticalAlignment="Center">
-                    <TextBlock Text="$badgeText" Foreground="#E2E8F0" FontWeight="Bold" FontSize="10"/>
-                    <TextBlock Text="$escapedTitle" Foreground="#FFFFFF" FontWeight="Bold" FontSize="15"/>
-                </StackPanel>
-            </Border>
-            <StackPanel Grid.Row="1" Margin="20,16">
-                <TextBlock Text="$escapedBody" TextWrapping="Wrap" FontSize="14" Foreground="#1E293B" LineHeight="21"/>
-                <TextBlock Text="$escapedMeta" FontSize="11" Foreground="#64748B" Margin="0,14,0,0"/>
-            </StackPanel>
-            <Border Grid.Row="2" Background="#F8FAFC" CornerRadius="0,0,11,11" Padding="20,0" BorderBrush="#E2E8F0" BorderThickness="0,1,0,0">
-                <Button Name="BtnConfirm" Content="Confirmar Leitura (Ciente)" Width="200" Height="36" HorizontalAlignment="Right"
-                        Background="$colorHex" Foreground="#FFFFFF" FontWeight="Bold" FontSize="12.5" BorderThickness="0" Cursor="Hand"/>
-            </Border>
-        </Grid>
-    </Border>
-</Window>
-"@
-
-    # Informa ao servidor que o pop-up foi entregue na tela
-    try {
-        $deliveredBody = @{ machineName = $MachineName } | ConvertTo-Json
-        Invoke-RestMethod -Uri "$ServerUrl/api/messages/$($MsgObj.id)/delivered" -Method Post -ContentType "application/json" -Body $deliveredBody -ErrorAction SilentlyContinue | Out-Null
-    } catch {}
-
-    $reader = (New-Object System.Xml.XmlNodeReader $xaml)
-    $window = [Windows.Markup.XamlReader]::Load($reader)
-    $window.Add_ContentRendered({
-        $window.Topmost = $true
-        $window.Activate()
-        $window.Focus()
-    })
-
-    $btn = $window.FindName("BtnConfirm")
-    $btn.Add_Click({
-        try {
-            $ackBody = @{ machineName = $MachineName; username = $Username } | ConvertTo-Json
-            Invoke-RestMethod -Uri "$ServerUrl/api/messages/$($MsgObj.id)/ack" -Method Post -ContentType "application/json" -Body $ackBody -ErrorAction SilentlyContinue | Out-Null
-        } catch {}
-        $window.Close()
-    })
-
-    $null = $window.ShowDialog()
-}
-
-Write-Host "Agente DirectoryAdmin ativo em $MachineName ($Username). Conectado a $ServerUrl" -ForegroundColor Green
+Write-Host "=================================================================" -ForegroundColor Cyan
+Write-Host " DirectoryAdmin - Despachante Nativo Windows msg.exe" -ForegroundColor Cyan
+Write-Host " Host: $GatewayHost ($GatewayUser) | Painel: $ServerUrl" -ForegroundColor Cyan
+Write-Host "=================================================================" -ForegroundColor Cyan
 
 while ($true) {
     try {
-        $pollUrl = "$ServerUrl/api/messages/pending?machine=$([uri]::EscapeDataString($MachineName))&user=$([uri]::EscapeDataString($Username))"
-        $pending = Invoke-RestMethod -Uri $pollUrl -Method Get -TimeoutSec 10
-        if ($pending -and $pending.messages) {
-            foreach ($msg in $pending.messages) {
-                if (-not $SeenIds.Contains($msg.id)) {
-                    $null = $SeenIds.Add($msg.id)
-                    Show-DesktopAlertPopup -MsgObj $msg
+        $queueUrl = "$ServerUrl/api/messages/gateway-queue?host=$([uri]::EscapeDataString($GatewayHost))&user=$([uri]::EscapeDataString($GatewayUser))"
+        $resp = Invoke-RestMethod -Uri $queueUrl -Method Get -TimeoutSec 10
+
+        if ($resp -and $resp.jobs) {
+            foreach ($job in $resp.jobs) {
+                $badge = "COMUNICADO DE TI"
+                if ($job.urgency -eq "warning") { $badge = "AVISO DE ATENCAO" }
+                elseif ($job.urgency -eq "urgent") { $badge = "ALERTA URGENTE" }
+
+                $msgText = "[$badge] $($job.title)\`r\`n\`r\`n$($job.body)"
+                $results = @()
+
+                Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Processando alerta '$($job.title)' para $($job.targets.Count) maquina(s)..." -ForegroundColor Yellow
+
+                foreach ($target in $job.targets) {
+                    $dest = if ($target.ipAddress) { $target.ipAddress } else { $target.machineName }
+                    $out = & msg.exe * /SERVER:$dest /TIME:0 "$msgText" 2>&1
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-Host "   OK -> $($target.machineName)" -ForegroundColor Green
+                        $results += @{ machineName = $target.machineName; success = $true; errorDetail = "" }
+                    } else {
+                        # Tenta pelo nome NetBIOS caso o IP tenha falhado
+                        if ($dest -ne $target.machineName) {
+                            $out = & msg.exe * /SERVER:$($target.machineName) /TIME:0 "$msgText" 2>&1
+                        }
+                        if ($LASTEXITCODE -eq 0) {
+                            Write-Host "   OK -> $($target.machineName)" -ForegroundColor Green
+                            $results += @{ machineName = $target.machineName; success = $true; errorDetail = "" }
+                        } else {
+                            $errMsg = ($out | Out-String).Trim()
+                            Write-Host "   FALHA -> $($target.machineName): $errMsg" -ForegroundColor Red
+                            $results += @{ machineName = $target.machineName; success = $false; errorDetail = $errMsg }
+                        }
+                    }
                 }
+
+                $reportPayload = @{ gatewayHost = $GatewayHost; results = $results } | ConvertTo-Json -Depth 4
+                Invoke-RestMethod -Uri "$ServerUrl/api/messages/$($job.id)/gateway-report" -Method Post -ContentType "application/json; charset=utf-8" -Body $reportPayload -ErrorAction SilentlyContinue | Out-Null
             }
         }
     } catch {
-        # Silencioso em caso de queda temporaria de rede
+        Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Aguardando conexao com $ServerUrl..." -ForegroundColor DarkGray
     }
-    Start-Sleep -Seconds $PollIntervalSeconds
+    Start-Sleep -Seconds $IntervaloSegundos
 }
 `;
 }
@@ -3766,6 +3725,7 @@ app.post("/api/messages/:id/toggle-pause", (req, res) => {
 // DELETE /api/messages/:id
 app.delete("/api/messages/:id", (req, res) => {
   const { id } = req.params;
+  pendingGatewayMessageIds.delete(id);
   const messages = readMessages();
   const filtered = messages.filter((m) => m.id !== id);
   writeMessages(filtered);
@@ -3787,9 +3747,10 @@ app.post("/api/messages/:id/delivered", (req, res) => {
   const existing = msg.receipts.find((r) => normalizeHostKey(r.machineName) === mKey);
 
   if (existing) {
-    if (existing.status === "pendente") {
+    if (existing.status === "pendente" || existing.status === "falha") {
       existing.status = "entregue";
       existing.deliveredAt = nowTs;
+      existing.errorDetail = undefined;
     }
     if (ipAddress && !existing.ipAddress) existing.ipAddress = ipAddress;
   } else {
@@ -3825,6 +3786,7 @@ app.post("/api/messages/:id/ack", (req, res) => {
     existing.deliveredAt = existing.deliveredAt || nowTs;
     existing.acknowledgedAt = nowTs;
     existing.acknowledgedBy = username || existing.acknowledgedBy || "Usuário Logado";
+    existing.errorDetail = undefined;
     if (ipAddress && !existing.ipAddress) existing.ipAddress = ipAddress;
   } else {
     msg.receipts.push({
@@ -3844,13 +3806,105 @@ app.post("/api/messages/:id/ack", (req, res) => {
   return res.json({ success: true, message: msg });
 });
 
-// GET /api/messages/pending (For PowerShell Agent polling on Windows Desktops + Heartbeat tracking)
+// GET /api/messages/gateway-queue (Polled by local Windows msg.exe Gateway inside the domain)
+app.get("/api/messages/gateway-queue", (req, res) => {
+  const rawHost = String(req.query.host || "GATEWAY-MSG").trim();
+  const rawUser = String(req.query.user || "admin").trim();
+  const hostKey = normalizeHostKey(rawHost);
+
+  if (hostKey) {
+    const isNew = !connectedMsgGateways.has(hostKey);
+    const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress || "";
+    const nowTs = getBrazilTimestamp();
+    const prev = connectedMsgGateways.get(hostKey);
+    connectedMsgGateways.set(hostKey, {
+      clientId: prev?.clientId || `gw_${hostKey}`,
+      machineName: rawHost,
+      username: rawUser,
+      ip: ip || prev?.ip || "",
+      connectedAt: prev?.connectedAt || nowTs,
+      lastSeenMs: Date.now(),
+      lastSeenAt: nowTs,
+      isGateway: true
+    });
+    if (isNew) {
+      broadcastWsEvent("clients:status", getConnectedWorkstationsSnapshot());
+    }
+  }
+
+  const messages = readMessages();
+  const jobs: Array<{
+    id: string;
+    title: string;
+    body: string;
+    urgency: string;
+    targets: Array<{ machineName: string; ipAddress?: string }>;
+  }> = [];
+
+  for (const msg of messages) {
+    if (!pendingGatewayMessageIds.has(msg.id)) continue;
+    const pendingTargets = (msg.receipts || [])
+      .filter((r) => r.status === "pendente")
+      .map((r) => ({ machineName: r.machineName, ipAddress: r.ipAddress }));
+    if (pendingTargets.length > 0) {
+      jobs.push({
+        id: msg.id,
+        title: msg.title,
+        body: msg.body,
+        urgency: msg.urgency,
+        targets: pendingTargets
+      });
+    } else {
+      pendingGatewayMessageIds.delete(msg.id);
+    }
+  }
+
+  res.json({ jobs });
+});
+
+// POST /api/messages/:id/gateway-report (Receives per-machine msg.exe delivery results from Windows Gateway)
+app.post("/api/messages/:id/gateway-report", (req, res) => {
+  const { id } = req.params;
+  const { results } = req.body;
+  pendingGatewayMessageIds.delete(id);
+
+  const messages = readMessages();
+  const idx = messages.findIndex((m) => m.id === id);
+  if (idx === -1) return res.status(404).json({ error: "Mensagem não encontrada." });
+
+  const msg = messages[idx];
+  const nowTs = getBrazilTimestamp();
+  msg.gatewayDispatchedAt = nowTs;
+
+  if (Array.isArray(results)) {
+    for (const item of results) {
+      const mKey = normalizeHostKey(item.machineName);
+      const rec = msg.receipts.find((r) => normalizeHostKey(r.machineName) === mKey);
+      if (rec) {
+        if (item.success) {
+          rec.status = "entregue";
+          rec.deliveredAt = nowTs;
+          rec.errorDetail = undefined;
+        } else {
+          rec.status = "falha";
+          rec.errorDetail = item.errorDetail || "Falha ao executar msg.exe na estação destino.";
+        }
+      }
+    }
+  }
+
+  messages[idx] = msg;
+  writeMessages(messages);
+  broadcastWsEvent("message:updated", msg);
+  return res.json({ success: true, message: msg });
+});
+
+// GET /api/messages/pending (For browser/SSE or local listener polling)
 app.get("/api/messages/pending", (req, res) => {
   const rawMachine = String(req.query.machine || "").trim();
   const rawUser = String(req.query.user || "usuario.windows").trim();
   const machineKey = normalizeHostKey(rawMachine);
 
-  // Register polling workstation as ONLINE so the console reflects active PowerShell agents immediately
   if (rawMachine && machineKey) {
     const isNew = !connectedPollingAgents.has(machineKey);
     const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress || "";
@@ -3887,7 +3941,7 @@ app.get("/api/messages/pending", (req, res) => {
   res.json({ messages: recentSent });
 });
 
-// GET /api/messages/stream (Server-Sent Events for PowerShell / Desktop Listeners)
+// GET /api/messages/stream (Server-Sent Events for Desktop Listeners)
 app.get("/api/messages/stream", (req, res) => {
   const machineName = String(req.query.machine || "ESTACAO-SSE").trim();
   const clientId = "sse_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6);
@@ -3914,23 +3968,11 @@ app.get("/api/messages/stream", (req, res) => {
   });
 });
 
-// GET /api/messages/agent.ps1 (Raw plain-text PowerShell Agent for 1-line `irm ... | iex`)
-app.get("/api/messages/agent.ps1", (req, res) => {
-  const protocol = req.headers["x-forwarded-proto"] || req.protocol || "http";
-  const host = req.headers.host || `localhost:${PORT}`;
-  const serverUrl = `${protocol}://${host}`;
-  res.setHeader("Content-Type", "text/plain; charset=utf-8");
-  return res.send(generateAgentPowerShellScript(serverUrl));
-});
-
-// GET /api/messages/push.ps1 (Raw plain-text PowerShell Push for 1-line admin dispatch `irm ... | iex`)
-app.get("/api/messages/push.ps1", (req, res) => {
+// GET /api/messages/powershell-script (Clean downloadable .bat / .ps1 / Gateway scripts - NO irm|iex, NO Bypass, NO Hidden)
+app.get("/api/messages/powershell-script", (req, res) => {
   const cfg = readConfig();
-  const protocol = req.headers["x-forwarded-proto"] || req.protocol || "http";
-  const host = req.headers.host || `localhost:${PORT}`;
-  const serverUrl = `${protocol}://${host}`;
+  const type = String(req.query.type || "bat");
   const messageId = String(req.query.messageId || "").trim();
-
   let title = String(req.query.title || "Aviso Importante de TI");
   let body = String(req.query.body || "Favor salvar seus documentos. Reinicializacao programada em 10 minutos.");
   let urgency = String(req.query.urgency || "warning");
@@ -3950,52 +3992,34 @@ app.get("/api/messages/push.ps1", (req, res) => {
     }
   }
 
-  const scriptContent = generatePushPowerShellScript({
-    title,
-    body,
-    urgency,
-    targetMode,
-    targetMachines,
-    domain: cfg.domain || "inema.intranet",
-    serverUrl,
-    messageId
-  });
-  res.setHeader("Content-Type", "text/plain; charset=utf-8");
-  return res.send(scriptContent);
-});
-
-// GET /api/messages/powershell-script
-app.get("/api/messages/powershell-script", (req, res) => {
-  const cfg = readConfig();
-  const type = String(req.query.type || "push");
-  const title = String(req.query.title || "Aviso Importante de TI");
-  const body = String(req.query.body || "Favor salvar seus documentos. Reinicializacao programada em 10 minutos.");
-  const urgency = String(req.query.urgency || "warning");
-  const targetMode = req.query.targetMode === "selected" ? "selected" : "all";
-  const messageId = String(req.query.messageId || "").trim();
-  const targetMachines = req.query.targets
-    ? String(req.query.targets).split(",").map((s) => s.trim()).filter(Boolean)
-    : [];
   const protocol = req.headers["x-forwarded-proto"] || req.protocol || "http";
   const host = req.headers.host || `localhost:${PORT}`;
   const serverUrl = `${protocol}://${host}`;
 
-  const scriptContent =
-    type === "agent"
-      ? generateAgentPowerShellScript(serverUrl)
-      : generatePushPowerShellScript({
-          title,
-          body,
-          urgency,
-          targetMode,
-          targetMachines,
-          domain: cfg.domain || "inema.intranet",
-          serverUrl,
-          messageId
-        });
+  let scriptContent = "";
+  let fileName = "Enviar-Mensagem-Windows.bat";
+
+  if (type === "bat") {
+    scriptContent = generateWindowsMsgBatScript({ title, body, urgency, targetMode, targetMachines });
+    fileName = "Enviar-Mensagem-Windows.bat";
+  } else if (type === "gateway") {
+    scriptContent = generateMsgGatewayScript(serverUrl);
+    fileName = "DirectoryAdmin-MsgGateway.ps1";
+  } else {
+    scriptContent = generatePushPowerShellScript({
+      title,
+      body,
+      urgency,
+      targetMode,
+      targetMachines,
+      domain: cfg.domain || "inema.intranet",
+      serverUrl,
+      messageId
+    });
+    fileName = "Enviar-Alerta-MSG.ps1";
+  }
 
   if (req.query.download === "true") {
-    const fileName = type === "agent" ? "DirectoryAdmin-DesktopAgent.ps1" : "Enviar-Alerta-AD.ps1";
     res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     return res.send(scriptContent);

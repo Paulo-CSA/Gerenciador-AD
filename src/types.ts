@@ -90,10 +90,11 @@ export type BroadcastStatus = 'enviada' | 'agendada' | 'pausada' | 'cancelada';
 export interface MachineDeliveryReceipt {
   machineName: string;
   ipAddress?: string;
-  status: 'pendente' | 'entregue' | 'confirmada';
+  status: 'pendente' | 'entregue' | 'confirmada' | 'falha';
   deliveredAt?: string;
   acknowledgedAt?: string;
   acknowledgedBy?: string;
+  errorDetail?: string;
 }
 
 export interface BroadcastMessage {
@@ -127,7 +128,7 @@ export interface ConnectedWorkstation {
   machineName: string;
   username?: string;
   role: 'workstation' | 'console';
-  channel?: 'websocket' | 'powershell_agent';
+  channel?: 'websocket' | 'powershell_agent' | 'msg_gateway';
   ip?: string;
   connectedAt: string;
   lastSeenAt?: string;
@@ -140,6 +141,7 @@ export interface BroadcastDeliverySummary {
   nativePushAttempted: boolean;
   nativePushSucceeded: number;
   nativePushFailed: number;
+  gatewayOnline?: boolean;
   serverPlatform: string;
   offlineMachines: string[];
 }

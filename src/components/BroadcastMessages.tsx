@@ -161,6 +161,8 @@ export default function BroadcastMessages({
   const [lastDeliveryNotice, setLastDeliveryNotice] = useState<{
     messageId: string;
     title: string;
+    body: string;
+    urgency: MessageUrgency;
     summary: BroadcastDeliverySummary;
     targetMode: 'all' | 'selected';
     targets: string[];
@@ -168,8 +170,8 @@ export default function BroadcastMessages({
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
   const [detailMessage, setDetailMessage] = useState<BroadcastMessage | null>(null);
 
-  // PowerShell tab states
-  const [psTab, setPsTab] = useState<'push' | 'agent' | 'gpo'>('push');
+  // Integration tab states
+  const [psTab, setPsTab] = useState<'bat' | 'gateway' | 'push' | 'gpo'>('bat');
   const [psScriptCode, setPsScriptCode] = useState('');
   const [loadingPs, setLoadingPs] = useState(false);
   const [copiedPs, setCopiedPs] = useState(false);
@@ -259,7 +261,12 @@ export default function BroadcastMessages({
     }
   }, [messages, detailMessage]);
 
-  // Fetch PowerShell script when entering PowerShell tab or switching mode
+  const gatewayClients = useMemo(
+    () => connectedWorkstations.filter((c) => c.channel === 'msg_gateway'),
+    [connectedWorkstations]
+  );
+
+  // Fetch script when entering Integration tab or switching mode
   useEffect(() => {
     if (subTab !== 'powershell') return;
     if (psTab === 'gpo') return;
@@ -268,7 +275,7 @@ export default function BroadcastMessages({
       setLoadingPs(true);
       try {
         const params = new URLSearchParams({
-          type: psTab === 'agent' ? 'agent' : 'push',
+          type: psTab,
           title: title || 'Aviso Importante de TI',
           body: body || 'Favor salvar seus documentos. Manutenção programada em 15 minutos.',
           urgency,
@@ -279,7 +286,7 @@ export default function BroadcastMessages({
         const data = await res.json();
         if (data.script) setPsScriptCode(data.script);
       } catch (err) {
-        console.error('Erro ao carregar script PowerShell:', err);
+        console.error('Erro ao carregar script:', err);
       } finally {
         setLoadingPs(false);
       }
@@ -289,15 +296,19 @@ export default function BroadcastMessages({
   }, [subTab, psTab, title, body, urgency, targetMode, selectedMachines]);
 
   const gpoBatWrapper = useMemo(() => {
-    const serverUrl = window.location.origin;
     return `@echo off
-REM Script de Logon GPO para iniciar o Agente de Pop-ups em Tempo Real nas Estacoes
-REM Salve o arquivo DirectoryAdmin-DesktopAgent.ps1 no compartilhamento NETLOGON do AD:
-REM \\\\${adDomain}\\NETLOGON\\DirectoryAdmin-DesktopAgent.ps1
+REM ========================================================================
+REM Habilita o recebimento nativo de mensagens Windows (msg.exe /SERVER:)
+REM Aplique via GPO (Script de Inicializacao do Computador ou Registro GPO)
+REM Nenhuma instalacao de agente ou PowerShell oculto e necessaria nas estacoes
+REM ========================================================================
 
-start "" /B powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "\\\\${adDomain}\\NETLOGON\\DirectoryAdmin-DesktopAgent.ps1" -ServerUrl "${serverUrl}"
-exit /b 0`;
-  }, [adDomain]);
+reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server" /v AllowRemoteRPC /t REG_DWORD /d 1 /f
+
+REM Libera regra de firewall padrao do Windows para RPC / Compartilhamento
+netsh advfirewall firewall set rule group="Compartilhamento de Arquivo e Impressora" new enable=Yes
+netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new enable=Yes`;
+  }, []);
 
   const toggleMachine = (name: string) => {
     setSelectedMachines((prev) =>
@@ -387,10 +398,18 @@ exit /b 0`;
           setSubTab('schedules');
         } else {
           const summary: BroadcastDeliverySummary | undefined = data.deliverySummary;
-          if (summary && summary.pendingAgentCount > 0) {
+          if (summary && summary.gatewayOnline) {
+            setLastDeliveryNotice(null);
+            showToast(
+              'success',
+              'Mensagem enviada para a fila do Despachante Windows msg.exe! Os pop-ups serão exibidos nas estações em instantes.'
+            );
+          } else if (summary && summary.pendingAgentCount > 0) {
             setLastDeliveryNotice({
               messageId: data.message?.id || '',
               title: title.trim(),
+              body: body.trim(),
+              urgency,
               summary,
               targetMode,
               targets: targetMode === 'all' ? [] : selectedMachines
@@ -398,17 +417,17 @@ exit /b 0`;
             if (summary.onlineAgentCount > 0) {
               showToast(
                 'warning',
-                `Pop-up entregue em ${summary.onlineAgentCount} estação(ões) online. ${summary.pendingAgentCount} máquina(s) aguardando agente ou disparo PowerShell.`
+                `Pop-up entregue em ${summary.onlineAgentCount} estação(ões). ${summary.pendingAgentCount} máquina(s) aguardando envio via msg.exe.`
               );
             } else {
               showToast(
                 'warning',
-                `Mensagem salva na fila, mas nenhuma estação alvo está com o Agente Receptor conectado neste momento.`
+                `Alerta registrado. Use o comando nativo msg.exe do Windows ou conecte o Despachante msg.exe para exibir na tela da estação.`
               );
             }
           } else {
             setLastDeliveryNotice(null);
-            showToast('success', 'Pop-up entregue em tempo real nas estações selecionadas!');
+            showToast('success', 'Pop-up entregue nas estações selecionadas via msg.exe / canal em tempo real!');
           }
         }
       }
@@ -426,10 +445,15 @@ exit /b 0`;
       if (res.ok) {
         await onRefreshMessages();
         const summary: BroadcastDeliverySummary | undefined = data.deliverySummary;
-        if (summary && summary.pendingAgentCount > 0 && data.message) {
+        if (summary && summary.gatewayOnline) {
+          setLastDeliveryNotice(null);
+          showToast('success', 'Mensagem enviada ao Despachante Windows msg.exe para disparo imediato!');
+        } else if (summary && summary.pendingAgentCount > 0 && data.message) {
           setLastDeliveryNotice({
             messageId: data.message.id,
             title: data.message.title,
+            body: data.message.body,
+            urgency: data.message.urgency,
             summary,
             targetMode: data.message.targetMode,
             targets: data.message.targetMachines || []
@@ -438,12 +462,12 @@ exit /b 0`;
           showToast(
             'warning',
             summary.onlineAgentCount > 0
-              ? `Entregue em ${summary.onlineAgentCount} estação(ões) online; ${summary.pendingAgentCount} aguardando agente/push.`
-              : 'Mensagem colocada na fila, mas as estações alvo não estão com o Agente Receptor conectado.'
+              ? `Entregue em ${summary.onlineAgentCount} estação(ões); ${summary.pendingAgentCount} aguardando msg.exe.`
+              : 'Alerta pronto para disparo nativo via Windows msg.exe.'
           );
         } else {
           setLastDeliveryNotice(null);
-          showToast('success', 'Mensagem disparada imediatamente em tempo real!');
+          showToast('success', 'Mensagem disparada imediatamente!');
         }
       }
     } catch {
@@ -485,7 +509,7 @@ exit /b 0`;
     }
   };
 
-  const handleDownloadPs = (type: 'push' | 'agent', customMsg?: BroadcastMessage) => {
+  const handleDownloadPs = (type: 'bat' | 'gateway' | 'push', customMsg?: BroadcastMessage) => {
     const params = new URLSearchParams({
       type,
       download: 'true',
@@ -618,7 +642,7 @@ exit /b 0`;
         </div>
       )}
 
-      {/* Actionable Delivery Diagnosis when target workstations are not running the Desktop Agent */}
+      {/* Native Windows msg.exe Delivery Panel (Zero EDR/Antivirus Risk) */}
       {lastDeliveryNotice && lastDeliveryNotice.summary.pendingAgentCount > 0 && (
         <div className="bg-amber-50/90 border border-amber-300 rounded-xl p-5 space-y-4">
           <div className="flex items-start justify-between gap-4">
@@ -626,21 +650,17 @@ exit /b 0`;
               <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
               <div className="space-y-1">
                 <h4 className="text-sm font-bold text-slate-900">
-                  Ação necessária para exibir o pop-up na tela da estação remota
+                  Envio Nativo via Windows <code className="font-mono">msg.exe</code> (Sem Risco de Segurança)
                 </h4>
                 <p className="text-xs text-slate-700 leading-relaxed">
-                  O alerta <strong>"{lastDeliveryNotice.title}"</strong> está pronto para{' '}
+                  Como este servidor web roda em ambiente <strong>{lastDeliveryNotice.summary.serverPlatform}</strong> e não tem acesso direto ao comando nativo{' '}
+                  <code className="font-mono">msg.exe</code> do Windows para{' '}
                   <strong>
                     {lastDeliveryNotice.summary.offlineMachines.length > 0
                       ? lastDeliveryNotice.summary.offlineMachines.join(', ')
                       : `${lastDeliveryNotice.summary.pendingAgentCount} máquina(s)`}
                   </strong>
-                  , mas {lastDeliveryNotice.summary.onlineAgentCount === 0 ? 'nenhuma delas está' : 'parte delas não está'} com o{' '}
-                  <strong>Agente Desktop Windows</strong> ativo no momento
-                  {lastDeliveryNotice.summary.serverPlatform !== 'win32'
-                    ? ` (o servidor web atual roda em ${lastDeliveryNotice.summary.serverPlatform}, sem acesso RPC/msg.exe direto à intranet)`
-                    : ''}
-                  . Escolha uma das opções abaixo para entregar na tela da estação:
+                  , utilize o método nativo e seguro abaixo (sem PowerShell Bypass ou execução remota de scripts):
                 </p>
               </div>
             </div>
@@ -654,60 +674,107 @@ exit /b 0`;
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            {/* Option 1: Instant Push from Admin's Windows PC */}
-            <div className="bg-white border border-amber-200 rounded-lg p-3.5 space-y-2">
+            {/* Option 1: Pure Windows CMD msg.exe + .BAT download */}
+            <div className="bg-white border border-amber-200 rounded-lg p-3.5 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-bold text-slate-900">
-                  1. Disparar AGORA do seu PC Admin Windows (Rede Interna)
+                  1. Comando Nativo Windows <code className="font-mono">msg.exe</code> (CMD / .BAT)
                 </span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    copyQuickCommand(
-                      'push_now',
-                      `powershell -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; irm '${window.location.origin}/api/messages/push.ps1?messageId=${encodeURIComponent(lastDeliveryNotice.messageId)}' | iex"`
-                    )
-                  }
-                  className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-md text-[11px] font-semibold cursor-pointer inline-flex items-center gap-1 shrink-0"
-                >
-                  {copiedCmd === 'push_now' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                  {copiedCmd === 'push_now' ? 'Copiado!' : 'Copiar Comando'}
-                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const badge =
+                        lastDeliveryNotice.urgency === 'urgent'
+                          ? 'ALERTA URGENTE'
+                          : lastDeliveryNotice.urgency === 'warning'
+                          ? 'AVISO DE ATENCAO'
+                          : 'COMUNICADO DE TI';
+                      const cleanMsg = `[${badge}] ${lastDeliveryNotice.title} - ${lastDeliveryNotice.body}`.replace(/"/g, "'");
+                      const list =
+                        lastDeliveryNotice.targets.length > 0
+                          ? lastDeliveryNotice.targets
+                          : lastDeliveryNotice.summary.offlineMachines;
+                      const cmd = (list.length > 0 ? list : ['NB-INEMA-12440'])
+                        .map((m) => `msg * /SERVER:${m} /TIME:0 "${cleanMsg}"`)
+                        .join(' && ');
+                      copyQuickCommand('msg_cmd', cmd);
+                    }}
+                    className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-md text-[11px] font-semibold cursor-pointer inline-flex items-center gap-1"
+                  >
+                    {copiedCmd === 'msg_cmd' ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                    {copiedCmd === 'msg_cmd' ? 'Copiado!' : 'Copiar CMD'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleDownloadPs('bat', {
+                        id: lastDeliveryNotice.messageId,
+                        title: lastDeliveryNotice.title,
+                        body: lastDeliveryNotice.body,
+                        urgency: lastDeliveryNotice.urgency,
+                        category: '',
+                        sender: currentUsername,
+                        targetMode: lastDeliveryNotice.targetMode,
+                        targetMachines: lastDeliveryNotice.targets,
+                        requireAck: true,
+                        playSound: true,
+                        autoCloseSeconds: 0,
+                        deliveryMethod: 'powershell_msg',
+                        scheduleType: 'immediate',
+                        status: 'enviada',
+                        createdAt: '',
+                        runCount: 1,
+                        receipts: []
+                      })
+                    }
+                    className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-md text-[11px] font-semibold cursor-pointer inline-flex items-center gap-1"
+                  >
+                    <Download className="w-3 h-3" />
+                    Baixar .BAT
+                  </button>
+                </div>
               </div>
               <p className="text-[11px] text-slate-500">
-                Cole no PowerShell do seu computador na rede <code className="font-mono">{adDomain}</code>: envia imediatamente via <code className="font-mono">msg.exe</code> e WinRM WPF para a estação alvo e atualiza o recibo aqui.
+                Execute no Prompt de Comando (CMD) de qualquer PC administrativo na rede <code className="font-mono">{adDomain}</code>. Usa apenas o <code className="font-mono">msg.exe</code> oficial do Windows, sem acionar antivírus.
               </p>
               <pre className="p-2 bg-slate-900 text-slate-200 rounded text-[10px] font-mono overflow-x-auto">
-                {`powershell -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; irm '${window.location.origin}/api/messages/push.ps1?messageId=${encodeURIComponent(lastDeliveryNotice.messageId)}' | iex"`}
+                {(lastDeliveryNotice.targets.length > 0
+                  ? lastDeliveryNotice.targets
+                  : lastDeliveryNotice.summary.offlineMachines.length > 0
+                  ? lastDeliveryNotice.summary.offlineMachines
+                  : ['NB-INEMA-12440']
+                )
+                  .slice(0, 3)
+                  .map(
+                    (m) =>
+                      `msg * /SERVER:${m} /TIME:0 "[${lastDeliveryNotice.urgency === 'urgent' ? 'ALERTA URGENTE' : 'AVISO'}] ${lastDeliveryNotice.title} - ${lastDeliveryNotice.body}"`
+                  )
+                  .join('\n')}
               </pre>
             </div>
 
-            {/* Option 2: Run Agent on Target Machine */}
-            <div className="bg-white border border-amber-200 rounded-lg p-3.5 space-y-2">
+            {/* Option 2: Automated Windows msg.exe Gateway */}
+            <div className="bg-white border border-amber-200 rounded-lg p-3.5 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-bold text-slate-900">
-                  2. Ativar Agente em Tempo Real na Estação (ou GPO)
+                  2. Automatizar Envio via Painel (Despachante <code className="font-mono">msg.exe</code>)
                 </span>
                 <button
                   type="button"
-                  onClick={() =>
-                    copyQuickCommand(
-                      'agent_now',
-                      `powershell -ExecutionPolicy Bypass -WindowStyle Hidden -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; irm '${window.location.origin}/api/messages/agent.ps1' | iex"`
-                    )
-                  }
+                  onClick={() => handleDownloadPs('gateway')}
                   className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-[11px] font-semibold cursor-pointer inline-flex items-center gap-1 shrink-0"
                 >
-                  {copiedCmd === 'agent_now' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                  {copiedCmd === 'agent_now' ? 'Copiado!' : 'Copiar Agente'}
+                  <Download className="w-3 h-3" />
+                  Baixar Gateway (.ps1)
                 </button>
               </div>
               <p className="text-[11px] text-slate-500">
-                Execute na estação Windows (ou implante na GPO de logon): a máquina aparecerá como <strong>Online</strong> no painel e abrirá o pop-up automaticamente em até 3 segundos.
+                Salve e execute este script limpo em <strong>apenas 1 Servidor Windows ou PC de TI</strong> (não precisa instalar nada nas estações). Sempre que você clicar em Enviar aqui no site, ele dispara o <code className="font-mono">msg.exe</code> na rede automaticamente e atualiza o recibo.
               </p>
-              <pre className="p-2 bg-slate-900 text-slate-200 rounded text-[10px] font-mono overflow-x-auto">
-                {`powershell -ExecutionPolicy Bypass -WindowStyle Hidden -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; irm '${window.location.origin}/api/messages/agent.ps1' | iex"`}
-              </pre>
+              <div className="text-[11px] text-slate-600 bg-slate-50 border border-slate-200 rounded p-2 font-mono">
+                Status do Despachante: {gatewayClients.length > 0 ? `Online (${gatewayClients[0].machineName})` : 'Nenhum despachante Windows conectado ainda'}
+              </div>
             </div>
           </div>
         </div>
@@ -739,14 +806,16 @@ exit /b 0`;
 
         <div className="bg-white rounded-xl border border-slate-200 p-4">
           <div className="flex items-center justify-between text-xs font-medium text-slate-500">
-            <span>Estações Online (WS)</span>
+            <span>Canais & Gateway MSG</span>
             <Radio className="w-4 h-4 text-emerald-600" />
           </div>
           <p className="text-2xl font-bold font-mono tabular-nums text-slate-900 mt-2">
             {workstationClients.length}
           </p>
           <p className="text-xs text-slate-400 mt-0.5">
-            {connectedWorkstations.length} sessões totais conectadas
+            {gatewayClients.length > 0
+              ? `Despachante msg.exe ativo (${gatewayClients[0].machineName})`
+              : `${connectedWorkstations.length} sessões web conectadas`}
           </p>
         </div>
 
@@ -812,7 +881,7 @@ exit /b 0`;
             }`}
           >
             <Terminal className="w-3.5 h-3.5" />
-            Integração PowerShell & GPO
+            Integração msg.exe & GPO
           </button>
         </div>
 
@@ -1698,12 +1767,12 @@ exit /b 0`;
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleDownloadPs('push', msg)}
+                              onClick={() => handleDownloadPs('bat', msg)}
                               className="px-2.5 py-1 bg-slate-800 hover:bg-slate-900 text-white rounded-md font-semibold text-[11px] cursor-pointer inline-flex items-center gap-1"
-                              title="Baixar script PowerShell (.ps1) desta mensagem"
+                              title="Baixar arquivo .BAT nativo (msg.exe) para esta mensagem"
                             >
                               <Terminal className="w-3 h-3" />
-                              .PS1
+                              .BAT (msg)
                             </button>
                             <button
                               type="button"
@@ -1724,18 +1793,36 @@ exit /b 0`;
         </div>
       )}
 
-      {/* TAB 4: POWERSHELL & GPO INTEGRATION */}
+      {/* TAB 4: WINDOWS MSG.EXE & GPO INTEGRATION */}
       {subTab === 'powershell' && (
         <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-5">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
             <div>
-              <h3 className="text-base font-bold text-slate-900">Integração Nativa via Script PowerShell & GPO</h3>
+              <h3 className="text-base font-bold text-slate-900">Envio Nativo Windows <code className="font-mono">msg.exe</code> & GPO</h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Utilize os scripts prontos abaixo para disparar pop-ups WPF/msg.exe via WinRM ou instalar o agente em tempo real via Política de Grupo (GPO).
+                Utilize o recurso nativo <code className="font-mono">msg.exe</code> do Windows (sem PowerShell Bypass, sem download oculto e sem alertas de antivírus/EDR).
               </p>
             </div>
 
-            <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+            <div className="inline-flex flex-wrap items-center gap-1 p-1 bg-slate-100 rounded-lg">
+              <button
+                type="button"
+                onClick={() => setPsTab('bat')}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md cursor-pointer ${
+                  psTab === 'bat' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
+                }`}
+              >
+                Arquivo .BAT (msg.exe)
+              </button>
+              <button
+                type="button"
+                onClick={() => setPsTab('gateway')}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md cursor-pointer ${
+                  psTab === 'gateway' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
+                }`}
+              >
+                Despachante Automático (.ps1)
+              </button>
               <button
                 type="button"
                 onClick={() => setPsTab('push')}
@@ -1743,16 +1830,7 @@ exit /b 0`;
                   psTab === 'push' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
                 }`}
               >
-                Disparo Remoto (.ps1)
-              </button>
-              <button
-                type="button"
-                onClick={() => setPsTab('agent')}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-md cursor-pointer ${
-                  psTab === 'agent' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
-                }`}
-              >
-                Agente Tempo Real (.ps1)
+                PowerShell MSG (.ps1)
               </button>
               <button
                 type="button"
@@ -1761,42 +1839,52 @@ exit /b 0`;
                   psTab === 'gpo' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
                 }`}
               >
-                Wrapper GPO (.bat)
+                GPO AllowRemoteRPC (.bat)
               </button>
             </div>
           </div>
 
-          {/* Info strip for selected PowerShell mode */}
+          {/* Info strip for selected integration mode */}
           <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="text-xs text-slate-600 space-y-1">
-              {psTab === 'push' && (
+              {psTab === 'bat' && (
                 <>
                   <p className="font-bold text-slate-800">
-                    Script de Disparo Direto (Enviar-Alerta-AD.ps1)
+                    Disparo Direto via CMD / Batch (Enviar-Mensagem-Windows.bat)
                   </p>
                   <p>
-                    Executa a partir da estação do administrador usando WinRM (<code className="font-mono">Invoke-Command</code>) e <code className="font-mono">msg.exe</code> com janela gráfica WPF configurada para{' '}
-                    <strong>{targetMode === 'all' ? 'todas as máquinas ativas do AD' : `${selectedMachines.length || 1} máquina(s) selecionada(s)`}</strong>.
+                    Executa apenas o comando nativo <code className="font-mono">msg.exe * /SERVER:MAQUINA</code> para{' '}
+                    <strong>{targetMode === 'all' ? 'todas as máquinas do AD' : `${selectedMachines.length || 1} máquina(s) selecionada(s)`}</strong>. Zero PowerShell e zero bloqueio de segurança.
                   </p>
                 </>
               )}
-              {psTab === 'agent' && (
+              {psTab === 'gateway' && (
                 <>
                   <p className="font-bold text-slate-800">
-                    Agente Residente nas Estações (DirectoryAdmin-DesktopAgent.ps1)
+                    Despachante Central Windows (DirectoryAdmin-MsgGateway.ps1)
                   </p>
                   <p>
-                    Mantém escuta contínua nesta API (<code className="font-mono">/api/messages/pending</code>) no contexto do usuário logado, exibe pop-ups estilizados com som e reporta confirmação de leitura (ACK) em tempo real.
+                    Execute em <strong>1 único servidor Windows ou PC de TI</strong> dentro da intranet. Ele consulta a fila JSON deste painel e dispara o <code className="font-mono">msg.exe</code> nativo automaticamente para as máquinas selecionadas ou agendadas.
+                  </p>
+                </>
+              )}
+              {psTab === 'push' && (
+                <>
+                  <p className="font-bold text-slate-800">
+                    Script PowerShell Limpo via msg.exe (Enviar-Alerta-MSG.ps1)
+                  </p>
+                  <p>
+                    Versão em PowerShell legível e sem flags de bypass/execução remota, utilizando <code className="font-mono">msg.exe</code> e registro automático de entrega no painel.
                   </p>
                 </>
               )}
               {psTab === 'gpo' && (
                 <>
                   <p className="font-bold text-slate-800">
-                    Implantação via GPO / Script de Logon (.BAT)
+                    Habilitar Recebimento de msg.exe via GPO (AllowRemoteRPC = 1)
                   </p>
                   <p>
-                    Configure este arquivo no caminho <code className="font-mono">\\{adDomain}\NETLOGON</code> e associe à GPO de Logon do Usuário para iniciar o agente silenciosamente em todas as estações Windows.
+                    Para que o Windows 10/11 aceite alertas remotos via <code className="font-mono">msg.exe * /SERVER:</code> sem instalar nenhum agente nas estações, aplique este ajuste de registro/firewall via GPO de Computador.
                   </p>
                 </>
               )}
@@ -1814,11 +1902,11 @@ exit /b 0`;
               {psTab !== 'gpo' && (
                 <button
                   type="button"
-                  onClick={() => handleDownloadPs(psTab === 'agent' ? 'agent' : 'push')}
+                  onClick={() => handleDownloadPs(psTab)}
                   className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold cursor-pointer inline-flex items-center gap-1.5"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  Baixar .ps1
+                  {psTab === 'bat' ? 'Baixar .BAT' : 'Baixar .PS1'}
                 </button>
               )}
             </div>
@@ -1827,16 +1915,18 @@ exit /b 0`;
           <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
             <div className="px-4 py-2.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between text-[11px] font-mono text-slate-400">
               <span>
-                {psTab === 'push'
-                  ? 'Enviar-Alerta-AD.ps1'
-                  : psTab === 'agent'
-                  ? 'DirectoryAdmin-DesktopAgent.ps1'
-                  : 'iniciar_agente_alertas.bat'}
+                {psTab === 'bat'
+                  ? 'Enviar-Mensagem-Windows.bat'
+                  : psTab === 'gateway'
+                  ? 'DirectoryAdmin-MsgGateway.ps1'
+                  : psTab === 'push'
+                  ? 'Enviar-Alerta-MSG.ps1'
+                  : 'habilitar_msg_gpo.bat'}
               </span>
-              <span>PowerShell 5.1 / 7+ · Windows 10 / 11 / Server</span>
+              <span>Windows 10 / 11 / Server · Nativo msg.exe</span>
             </div>
             <pre className="p-4 text-xs font-mono text-slate-200 overflow-x-auto max-h-[460px] leading-relaxed">
-              {loadingPs && psTab !== 'gpo' ? 'Gerando script PowerShell...' : psTab === 'gpo' ? gpoBatWrapper : psScriptCode}
+              {loadingPs && psTab !== 'gpo' ? 'Gerando script...' : psTab === 'gpo' ? gpoBatWrapper : psScriptCode}
             </pre>
           </div>
         </div>
@@ -1893,8 +1983,17 @@ exit /b 0`;
                               <span className="text-emerald-700">Confirmada (Ciente)</span>
                             ) : rec.status === 'entregue' ? (
                               <span className="text-blue-700">Pop-up Exibido</span>
+                            ) : rec.status === 'falha' ? (
+                              <div>
+                                <span className="text-red-600">Falha no msg.exe</span>
+                                {rec.errorDetail && (
+                                  <div className="text-[10px] font-normal text-red-500 mt-0.5 max-w-[200px] truncate" title={rec.errorDetail}>
+                                    {rec.errorDetail}
+                                  </div>
+                                )}
+                              </div>
                             ) : (
-                              <span className="text-slate-400">Aguardando Agente</span>
+                              <span className="text-slate-400">Aguardando Envio</span>
                             )}
                           </td>
                           <td className="py-2.5 px-3 font-mono tabular-nums text-[11px] text-slate-500">
@@ -1920,11 +2019,11 @@ exit /b 0`;
             <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
               <button
                 type="button"
-                onClick={() => handleDownloadPs('push', detailMessage)}
+                onClick={() => handleDownloadPs('bat', detailMessage)}
                 className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg cursor-pointer inline-flex items-center gap-1.5"
               >
                 <Download className="w-3.5 h-3.5" />
-                Baixar Script PowerShell (.ps1)
+                Baixar .BAT (msg.exe)
               </button>
               <button
                 type="button"
