@@ -1,9 +1,11 @@
 import express from "express";
+import http from "http";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import dns from "dns";
 import dotenv from "dotenv";
+import { WebSocketServer, WebSocket } from "ws";
 
 // Load environment variables from .env file
 dotenv.config();
@@ -29,6 +31,7 @@ app.use(express.json());
 
 const CONFIG_PATH = path.join(process.cwd(), "ad_config.json");
 const DATABASE_PATH = path.join(process.cwd(), "ad_database.json");
+const MESSAGES_PATH = path.join(process.cwd(), "ad_messages.json");
 
 // Default configuration template
 const defaultConfig = {
@@ -2855,12 +2858,949 @@ app.post("/api/ad/computers/disable-batch", async (req, res) => {
 
 
 
+// ==========================================
+// MENSAGERIA & POP-UPS EM TEMPO REAL + SCHEDULER + POWERSHELL
+// ==========================================
+
+interface ServerBroadcastMessage {
+  id: string;
+  title: string;
+  body: string;
+  urgency: "info" | "warning" | "urgent";
+  category: string;
+  sender: string;
+  targetMode: "all" | "selected";
+  targetMachines: string[];
+  onlyActiveMachines?: boolean;
+  requireAck: boolean;
+  playSound: boolean;
+  autoCloseSeconds: number;
+  deliveryMethod: "realtime_agent" | "powershell_msg" | "hybrid";
+  scheduleType: "immediate" | "once" | "daily" | "weekly" | "monthly";
+  scheduledAt?: string;
+  recurrenceTime?: string;
+  recurrenceDays?: number[];
+  status: "enviada" | "agendada" | "pausada" | "cancelada";
+  createdAt: string;
+  sentAt?: string;
+  nextRunAt?: string;
+  runCount: number;
+  receipts: Array<{
+    machineName: string;
+    ipAddress?: string;
+    status: "pendente" | "entregue" | "confirmada";
+    deliveredAt?: string;
+    acknowledgedAt?: string;
+    acknowledgedBy?: string;
+  }>;
+}
+
+interface WsClientMeta {
+  ws: WebSocket;
+  clientId: string;
+  machineName: string;
+  username: string;
+  role: "workstation" | "console";
+  ip: string;
+  connectedAt: string;
+}
+
+const connectedWsClients = new Map<string, WsClientMeta>();
+const sseClients = new Map<string, { res: express.Response; machineName: string }>();
+
+function readMessages(): ServerBroadcastMessage[] {
+  try {
+    if (!fs.existsSync(MESSAGES_PATH)) {
+      const initialMessages: ServerBroadcastMessage[] = [];
+      fs.writeFileSync(MESSAGES_PATH, JSON.stringify(initialMessages, null, 2), "utf8");
+      return initialMessages;
+    }
+    const raw = fs.readFileSync(MESSAGES_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error("Erro ao ler ad_messages.json:", err);
+    return [];
+  }
+}
+
+function writeMessages(messages: ServerBroadcastMessage[]) {
+  try {
+    fs.writeFileSync(MESSAGES_PATH, JSON.stringify(messages, null, 2), "utf8");
+    return true;
+  } catch (err) {
+    console.error("Erro ao gravar ad_messages.json:", err);
+    return false;
+  }
+}
+
+function getConnectedWorkstationsSnapshot() {
+  return Array.from(connectedWsClients.values()).map((c) => ({
+    clientId: c.clientId,
+    machineName: c.machineName,
+    username: c.username,
+    role: c.role,
+    ip: c.ip,
+    connectedAt: c.connectedAt
+  }));
+}
+
+function broadcastWsEvent(eventType: string, payload: any, targetMode?: "all" | "selected", targetMachines?: string[]) {
+  const dataStr = JSON.stringify({ type: eventType, payload });
+  const targetSet = targetMachines && targetMachines.length > 0
+    ? new Set(targetMachines.map((m) => m.toUpperCase()))
+    : null;
+
+  for (const client of connectedWsClients.values()) {
+    if (client.ws.readyState !== WebSocket.OPEN) continue;
+
+    // For broadcast popups, always send to consoles (for live monitor) and matching workstations
+    if (eventType === "message:broadcast" && targetMode === "selected" && targetSet) {
+      const mUpper = (client.machineName || "").toUpperCase();
+      if (client.role === "workstation" && mUpper !== "ALL" && !targetSet.has(mUpper)) {
+        continue;
+      }
+    }
+
+    try {
+      client.ws.send(dataStr);
+    } catch (e) {
+      // ignore closed socket race
+    }
+  }
+
+  // Also push to SSE workstation listeners (PowerShell / HTTP stream agents)
+  if (eventType === "message:broadcast") {
+    for (const sse of sseClients.values()) {
+      const mUpper = (sse.machineName || "").toUpperCase();
+      if (targetMode === "selected" && targetSet && mUpper && mUpper !== "ALL" && !targetSet.has(mUpper)) {
+        continue;
+      }
+      try {
+        sse.res.write(`event: broadcast\ndata: ${JSON.stringify(payload)}\n\n`);
+      } catch (e) {
+        // ignore broken pipe
+      }
+    }
+  }
+}
+
+function computeNextRunAt(
+  scheduleType: "immediate" | "once" | "daily" | "weekly" | "monthly",
+  scheduledAt?: string,
+  recurrenceTime?: string,
+  recurrenceDays?: number[],
+  fromNow: boolean = false
+): string | undefined {
+  if (scheduleType === "immediate") return undefined;
+
+  if (scheduleType === "once") {
+    return scheduledAt || undefined;
+  }
+
+  const timeParts = (recurrenceTime || "09:00").split(":");
+  const hour = parseInt(timeParts[0] || "9", 10);
+  const minute = parseInt(timeParts[1] || "0", 10);
+
+  const now = new Date();
+  const candidate = new Date(now);
+  candidate.setSeconds(0, 0);
+  candidate.setHours(hour, minute, 0, 0);
+
+  if (scheduleType === "daily") {
+    if (candidate.getTime() <= now.getTime() || fromNow) {
+      candidate.setDate(candidate.getDate() + 1);
+    }
+    return candidate.toISOString();
+  }
+
+  if (scheduleType === "weekly") {
+    const days = Array.isArray(recurrenceDays) && recurrenceDays.length > 0 ? recurrenceDays : [1];
+    for (let offset = 0; offset <= 7; offset++) {
+      const test = new Date(candidate);
+      test.setDate(candidate.getDate() + offset);
+      if (days.includes(test.getDay())) {
+        if (offset === 0 && (test.getTime() <= now.getTime() || fromNow)) {
+          continue;
+        }
+        return test.toISOString();
+      }
+    }
+    candidate.setDate(candidate.getDate() + 7);
+    return candidate.toISOString();
+  }
+
+  if (scheduleType === "monthly") {
+    const targetDay = Array.isArray(recurrenceDays) && recurrenceDays.length > 0 ? recurrenceDays[0] : 1;
+    candidate.setDate(targetDay);
+    if (candidate.getTime() <= now.getTime() || fromNow) {
+      candidate.setMonth(candidate.getMonth() + 1);
+      candidate.setDate(targetDay);
+    }
+    return candidate.toISOString();
+  }
+
+  return undefined;
+}
+
+function buildTargetReceipts(
+  targetMode: "all" | "selected",
+  targetMachines: string[],
+  onlyActiveMachines: boolean
+) {
+  // Use cached/demo computer list to build realistic receipt tracking rows
+  const cfg = readConfig();
+  let knownComputers: Array<{ name: string; ipAddress?: string; status?: string }> = [];
+
+  if (cfg.useDemoMode) {
+    const db = readDatabase();
+    knownComputers = db.computers || [];
+  } else if (globalComputersCache.size > 0) {
+    const seen = new Set<string>();
+    for (const c of globalComputersCache.values()) {
+      if (!seen.has(c.name.toUpperCase())) {
+        seen.add(c.name.toUpperCase());
+        const isDisabled = (c.userAccountControl & 0x0002) !== 0;
+        knownComputers.push({
+          name: c.name,
+          ipAddress: dnsIpCache.get(`${c.name}.${cfg.domain}`) || undefined,
+          status: isDisabled ? "Desativado" : "Ativo"
+        });
+      }
+    }
+  }
+
+  const onlineMap = new Map<string, WsClientMeta>();
+  for (const client of connectedWsClients.values()) {
+    if (client.machineName) {
+      onlineMap.set(client.machineName.toUpperCase(), client);
+    }
+  }
+  for (const sse of sseClients.values()) {
+    if (sse.machineName && !onlineMap.has(sse.machineName.toUpperCase())) {
+      onlineMap.set(sse.machineName.toUpperCase(), {
+        ws: null as any,
+        clientId: "",
+        machineName: sse.machineName,
+        username: "",
+        role: "workstation",
+        ip: "",
+        connectedAt: ""
+      });
+    }
+  }
+
+  const nowTs = getBrazilTimestamp();
+  const receipts: ServerBroadcastMessage["receipts"] = [];
+
+  if (targetMode === "selected") {
+    const uniqueTargets = Array.from(new Set(targetMachines.map((m) => m.trim()).filter(Boolean)));
+    for (const name of uniqueTargets) {
+      const found = knownComputers.find((k) => k.name.toUpperCase() === name.toUpperCase());
+      const isOnline = onlineMap.has(name.toUpperCase());
+      receipts.push({
+        machineName: found ? found.name : name,
+        ipAddress: found?.ipAddress,
+        status: isOnline ? "entregue" : "pendente",
+        deliveredAt: isOnline ? nowTs : undefined
+      });
+    }
+  } else {
+    const filtered = onlyActiveMachines
+      ? knownComputers.filter((k) => k.status !== "Desativado")
+      : knownComputers;
+    for (const comp of filtered) {
+      const isOnline = onlineMap.has(comp.name.toUpperCase());
+      receipts.push({
+        machineName: comp.name,
+        ipAddress: comp.ipAddress,
+        status: isOnline ? "entregue" : "pendente",
+        deliveredAt: isOnline ? nowTs : undefined
+      });
+    }
+  }
+
+  return receipts;
+}
+
+function dispatchBroadcastMessage(messageId: string, triggeredByScheduler: boolean = false): ServerBroadcastMessage | null {
+  const messages = readMessages();
+  const idx = messages.findIndex((m) => m.id === messageId);
+  if (idx === -1) return null;
+
+  const msg = messages[idx];
+  const nowTs = getBrazilTimestamp();
+
+  msg.sentAt = nowTs;
+  msg.runCount = (msg.runCount || 0) + 1;
+  msg.receipts = buildTargetReceipts(msg.targetMode, msg.targetMachines, Boolean(msg.onlyActiveMachines));
+
+  if (msg.scheduleType === "immediate" || msg.scheduleType === "once") {
+    msg.status = "enviada";
+    msg.nextRunAt = undefined;
+  } else {
+    msg.status = "agendada";
+    msg.nextRunAt = computeNextRunAt(
+      msg.scheduleType,
+      msg.scheduledAt,
+      msg.recurrenceTime,
+      msg.recurrenceDays,
+      true
+    );
+  }
+
+  messages[idx] = msg;
+  writeMessages(messages);
+
+  // Add audit log
+  const db = readDatabase();
+  const targetLabel = msg.targetMode === "all"
+    ? (msg.onlyActiveMachines ? "Todas as máquinas ativas" : "Todas as máquinas da rede")
+    : `${msg.targetMachines.length} máquina(s): ${msg.targetMachines.slice(0, 5).join(", ")}${msg.targetMachines.length > 5 ? "..." : ""}`;
+
+  db.logs.unshift({
+    id: "log_" + Date.now(),
+    timestamp: nowTs,
+    operator: triggeredByScheduler ? "Agendador Automático" : (msg.sender || "admin.silva"),
+    action: triggeredByScheduler ? "Disparo Automático de Mensagem" : "Envio de Alerta na Rede",
+    targetUser: targetLabel,
+    details: `[${msg.urgency.toUpperCase()}] "${msg.title}" enviada em tempo real para ${targetLabel}.`,
+    type: msg.urgency === "urgent" ? "danger" : msg.urgency === "warning" ? "warning" : "info"
+  });
+  writeDatabase(db);
+
+  // Push real-time WebSocket + SSE popup event
+  broadcastWsEvent("message:broadcast", msg, msg.targetMode, msg.targetMachines);
+  broadcastWsEvent("message:updated", msg);
+
+  return msg;
+}
+
+// Background scheduler checking due messages every 10 seconds
+setInterval(() => {
+  try {
+    const messages = readMessages();
+    const nowMs = Date.now();
+    for (const msg of messages) {
+      if (msg.status === "agendada" && msg.nextRunAt) {
+        const dueMs = new Date(msg.nextRunAt).getTime();
+        if (!isNaN(dueMs) && dueMs <= nowMs) {
+          console.log(`[Scheduler] Disparando mensagem agendada: ${msg.title} (${msg.id})`);
+          dispatchBroadcastMessage(msg.id, true);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Erro no agendador de mensagens:", err);
+  }
+}, 10000);
+
+function generatePushPowerShellScript(opts: {
+  title: string;
+  body: string;
+  urgency: string;
+  targetMode: "all" | "selected";
+  targetMachines: string[];
+  domain: string;
+  serverUrl: string;
+  messageId?: string;
+  requireAck?: boolean;
+}) {
+  const safeTitle = (opts.title || "Comunicado de TI").replace(/"/g, '`"');
+  const safeBody = (opts.body || "Mensagem administrativa enviada pelo setor de TI.").replace(/"/g, '`"');
+  const targetBlock =
+    opts.targetMode === "all"
+      ? `# Busca automaticamente todas as maquinas ativas no Active Directory (${opts.domain})
+Import-Module ActiveDirectory -ErrorAction SilentlyContinue
+$Targets = (Get-ADComputer -Filter {Enabled -eq $true} -Properties DNSHostName).Name
+if (-not $Targets) {
+    Write-Warning "Modulo ActiveDirectory indisponivel. Informe os hostnames manualmente."
+    $Targets = @()
+}`
+      : `# Lista de equipamentos especificos selecionados no painel
+$Targets = @(
+${(opts.targetMachines.length > 0 ? opts.targetMachines : ["NB-INEMA-12440"]).map((m) => `    "${m}"`).join(",\n")}
+)`;
+
+  const urgencyColor =
+    opts.urgency === "urgent" ? "#DC2626" : opts.urgency === "warning" ? "#D97706" : "#2563EB";
+  const urgencyLabel =
+    opts.urgency === "urgent" ? "ALERTA URGENTE / CRITICO" : opts.urgency === "warning" ? "AVISO DE ATENCAO" : "COMUNICADO INFORMATIVO";
+
+  return `<#
+.SYNOPSIS
+    Disparo Remoto de Pop-up Desktop em Tempo Real via PowerShell (Active Directory)
+.DESCRIPTION
+    Envia alertas graficos (WPF Topmost) ou mensagens nativas (msg.exe) para usuarios logados
+    nas estacoes de trabalho do dominio ${opts.domain}.
+    Gerado automaticamente pelo painel DirectoryAdmin.
+#>
+
+[CmdletBinding()]
+param(
+    [string]$Titulo = "${safeTitle}",
+    [string]$Mensagem = "${safeBody}",
+    [ValidateSet("info","warning","urgent")]
+    [string]$Urgencia = "${opts.urgency}",
+    [string]$ServerApiUrl = "${opts.serverUrl}"
+)
+
+${targetBlock}
+
+Write-Host "Iniciando disparo [${urgencyLabel}] para $($Targets.Count) estacao(oes)..." -ForegroundColor Cyan
+
+# Bloco remoto que exibe o Pop-up grafico WPF na sessao ativa do usuario
+$RemotePopupScript = {
+    param($T, $M, $U, $ColorHex, $BadgeText)
+    Add-Type -AssemblyName PresentationFramework -ErrorAction SilentlyContinue
+
+    # Fallback rapido via msg.exe para garantir exibicao imediata na sessao RDS/Console
+    $msgText = "[$BadgeText] $T\`r\`n\`r\`n$M"
+    Start-Process -FilePath "msg.exe" -ArgumentList "* /TIME:0 \`"$msgText\`"" -NoNewWindow -ErrorAction SilentlyContinue
+
+    # Tenta abrir janela WPF estilizada caso o script rode no contexto interativo do usuario
+    try {
+        [xml]$xaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        Title="$BadgeText" Height="270" Width="480" WindowStartupLocation="CenterScreen"
+        Topmost="True" WindowStyle="None" AllowsTransparency="True" Background="Transparent">
+    <Border CornerRadius="12" Background="#FFFFFF" BorderBrush="$ColorHex" BorderThickness="2">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="52"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="56"/>
+            </Grid.RowDefinitions>
+            <Border Grid.Row="0" Background="$ColorHex" CornerRadius="10,10,0,0" Padding="16,0">
+                <TextBlock Text="$BadgeText — $T" Foreground="#FFFFFF" FontWeight="Bold" FontSize="14" VerticalAlignment="Center"/>
+            </Border>
+            <ScrollViewer Grid.Row="1" Margin="18,14">
+                <TextBlock Text="$M" TextWrapping="Wrap" FontSize="13.5" Foreground="#1E293B"/>
+            </ScrollViewer>
+            <Border Grid.Row="2" Background="#F8FAFC" CornerRadius="0,0,10,10" Padding="16,0" BorderBrush="#E2E8F0" BorderThickness="0,1,0,0">
+                <Button Name="BtnOk" Content="Li e estou ciente" Width="160" Height="34" HorizontalAlignment="Right"
+                        Background="$ColorHex" Foreground="#FFFFFF" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"/>
+            </Border>
+        </Grid>
+    </Border>
+</Window>
+"@
+        $reader = (New-Object System.Xml.XmlNodeReader $xaml)
+        $window = [Windows.Markup.XamlReader]::Load($reader)
+        $btn = $window.FindName("BtnOk")
+        $btn.Add_Click({ $window.Close() })
+        [System.Media.SystemSounds]::Exclamation.Play()
+        $null = $window.ShowDialog()
+    } catch { }
+}
+
+foreach ($Machine in $Targets) {
+    Write-Host " -> Enviando para $Machine..." -NoNewline
+    if (Test-Connection -ComputerName $Machine -Count 1 -Quiet -ErrorAction SilentlyContinue) {
+        try {
+            # 1. Envia diretamente via msg.exe para todas as sessoes logadas na estacao
+            $formatted = "[${urgencyLabel}] $Titulo - $Mensagem"
+            & msg.exe * /SERVER:$Machine /TIME:300 "$formatted" 2>$null
+
+            # 2. Dispara via WinRM (PowerShell Remoting) se habilitado
+            Invoke-Command -ComputerName $Machine -ScriptBlock $RemotePopupScript -ArgumentList $Titulo, $Mensagem, $Urgencia, "${urgencyColor}", "${urgencyLabel}" -AsJob -ErrorAction SilentlyContinue | Out-Null
+
+            Write-Host " [OK - Enviado]" -ForegroundColor Green
+        } catch {
+            Write-Host " [Falha: $($_.Exception.Message)]" -ForegroundColor Red
+        }
+    } else {
+        Write-Host " [Offline / Sem resposta ICMP]" -ForegroundColor Yellow
+    }
+}
+`;
+}
+
+function generateAgentPowerShellScript(serverUrl: string) {
+  return `<#
+.SYNOPSIS
+    Agente Receptor de Pop-ups em Tempo Real (DirectoryAdmin Desktop Agent)
+.DESCRIPTION
+    Instalar via GPO (Logon Script ou Tarefa Agendada no contexto do usuario logado).
+    Conecta em tempo real ao servidor DirectoryAdmin, exibe pop-ups modernos WPF com nivel
+    de urgencia (Info, Atencao, Urgente), reproduz alerta sonoro e envia confirmacao de leitura (ACK).
+#>
+
+param(
+    [string]$ServerUrl = "${serverUrl}",
+    [int]$PollIntervalSeconds = 5
+)
+
+Add-Type -AssemblyName PresentationFramework
+Add-Type -AssemblyName System.Windows.Forms
+
+$MachineName = $env:COMPUTERNAME
+$Username = $env:USERNAME
+$SeenIds = New-Object 'System.Collections.Generic.HashSet[string]'
+
+function Show-DesktopAlertPopup {
+    param($MsgObj)
+
+    $urgency = $MsgObj.urgency
+    $colorHex = "#2563EB"
+    $badgeText = "COMUNICADO DE TI"
+    if ($urgency -eq "warning") {
+        $colorHex = "#D97706"
+        $badgeText = "AVISO IMPORTANTE"
+    } elseif ($urgency -eq "urgent") {
+        $colorHex = "#DC2626"
+        $badgeText = "ALERTA URGENTE"
+    }
+
+    if ($MsgObj.playSound -eq $true) {
+        if ($urgency -eq "urgent") { [System.Media.SystemSounds]::Hand.Play() }
+        else { [System.Media.SystemSounds]::Exclamation.Play() }
+    }
+
+    $escapedTitle = [System.Security.SecurityElement]::Escape($MsgObj.title)
+    $escapedBody  = [System.Security.SecurityElement]::Escape($MsgObj.body)
+    $escapedMeta  = [System.Security.SecurityElement]::Escape("Enviado por: $($MsgObj.sender) | Estacao: $MachineName | Usuario: $Username")
+
+    [xml]$xaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        Title="$badgeText" Height="300" Width="520" WindowStartupLocation="CenterScreen"
+        Topmost="True" WindowStyle="None" AllowsTransparency="True" Background="Transparent" ShowInTaskbar="True">
+    <Border CornerRadius="14" Background="#FFFFFF" BorderBrush="$colorHex" BorderThickness="2.5">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="22" ShadowDepth="4" Opacity="0.35"/>
+        </Border.Effect>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="56"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="62"/>
+            </Grid.RowDefinitions>
+            <Border Grid.Row="0" Background="$colorHex" CornerRadius="11,11,0,0" Padding="20,0">
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="$badgeText" Foreground="#E2E8F0" FontWeight="Bold" FontSize="10"/>
+                    <TextBlock Text="$escapedTitle" Foreground="#FFFFFF" FontWeight="Bold" FontSize="15"/>
+                </StackPanel>
+            </Border>
+            <StackPanel Grid.Row="1" Margin="20,16">
+                <TextBlock Text="$escapedBody" TextWrapping="Wrap" FontSize="14" Foreground="#1E293B" LineHeight="21"/>
+                <TextBlock Text="$escapedMeta" FontSize="11" Foreground="#64748B" Margin="0,14,0,0"/>
+            </StackPanel>
+            <Border Grid.Row="2" Background="#F8FAFC" CornerRadius="0,0,11,11" Padding="20,0" BorderBrush="#E2E8F0" BorderThickness="0,1,0,0">
+                <Button Name="BtnConfirm" Content="Confirmar Leitura (Ciente)" Width="190" Height="36" HorizontalAlignment="Right"
+                        Background="$colorHex" Foreground="#FFFFFF" FontWeight="Bold" FontSize="12.5" BorderThickness="0" Cursor="Hand"/>
+            </Border>
+        </Grid>
+    </Border>
+</Window>
+"@
+
+    # Informa ao servidor que o pop-up foi entregue na tela
+    try {
+        $deliveredBody = @{ machineName = $MachineName } | ConvertTo-Json
+        Invoke-RestMethod -Uri "$ServerUrl/api/messages/$($MsgObj.id)/delivered" -Method Post -ContentType "application/json" -Body $deliveredBody -ErrorAction SilentlyContinue | Out-Null
+    } catch {}
+
+    $reader = (New-Object System.Xml.XmlNodeReader $xaml)
+    $window = [Windows.Markup.XamlReader]::Load($reader)
+    $btn = $window.FindName("BtnConfirm")
+    $btn.Add_Click({
+        try {
+            $ackBody = @{ machineName = $MachineName; username = $Username } | ConvertTo-Json
+            Invoke-RestMethod -Uri "$ServerUrl/api/messages/$($MsgObj.id)/ack" -Method Post -ContentType "application/json" -Body $ackBody -ErrorAction SilentlyContinue | Out-Null
+        } catch {}
+        $window.Close()
+    })
+
+    $null = $window.ShowDialog()
+}
+
+Write-Host "Agente DirectoryAdmin ativo em $MachineName ($Username). Conectado a $ServerUrl" -ForegroundColor Green
+
+while ($true) {
+    try {
+        $pending = Invoke-RestMethod -Uri "$ServerUrl/api/messages/pending?machine=$MachineName" -Method Get -TimeoutSec 10
+        if ($pending -and $pending.messages) {
+            foreach ($msg in $pending.messages) {
+                if (-not $SeenIds.Contains($msg.id)) {
+                    $null = $SeenIds.Add($msg.id)
+                    Show-DesktopAlertPopup -MsgObj $msg
+                }
+            }
+        }
+    } catch {
+        # Silencioso em caso de queda temporaria de rede
+    }
+    Start-Sleep -Seconds $PollIntervalSeconds
+}
+`;
+}
+
+// GET /api/messages
+app.get("/api/messages", (req, res) => {
+  const messages = readMessages();
+  res.json({
+    messages: messages.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")),
+    connectedWorkstations: getConnectedWorkstationsSnapshot()
+  });
+});
+
+// POST /api/messages/send
+app.post("/api/messages/send", (req, res) => {
+  try {
+    const {
+      title,
+      body,
+      urgency = "info",
+      category = "Comunicado Geral",
+      sender = "admin.silva",
+      targetMode = "all",
+      targetMachines = [],
+      onlyActiveMachines = true,
+      requireAck = true,
+      playSound = true,
+      autoCloseSeconds = 0,
+      deliveryMethod = "hybrid",
+      scheduleType = "immediate",
+      scheduledAt,
+      recurrenceTime,
+      recurrenceDays
+    } = req.body;
+
+    if (!title || !body) {
+      return res.status(400).json({ error: "Título e conteúdo da mensagem são obrigatórios." });
+    }
+
+    if (targetMode === "selected" && (!Array.isArray(targetMachines) || targetMachines.length === 0)) {
+      return res.status(400).json({ error: "Selecione pelo menos uma máquina de destino ou escolha 'Todas as Máquinas'." });
+    }
+
+    if (scheduleType === "once" && !scheduledAt) {
+      return res.status(400).json({ error: "Informe a data e hora para o agendamento único." });
+    }
+
+    const id = "msg_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6);
+    const createdAt = getBrazilTimestamp();
+    const nextRunAt = computeNextRunAt(scheduleType, scheduledAt, recurrenceTime, recurrenceDays, false);
+
+    const newMsg: ServerBroadcastMessage = {
+      id,
+      title: String(title).trim(),
+      body: String(body).trim(),
+      urgency,
+      category,
+      sender,
+      targetMode,
+      targetMachines: targetMode === "all" ? [] : targetMachines,
+      onlyActiveMachines: Boolean(onlyActiveMachines),
+      requireAck: Boolean(requireAck),
+      playSound: Boolean(playSound),
+      autoCloseSeconds: Number(autoCloseSeconds) || 0,
+      deliveryMethod,
+      scheduleType,
+      scheduledAt,
+      recurrenceTime,
+      recurrenceDays,
+      status: scheduleType === "immediate" ? "enviada" : "agendada",
+      createdAt,
+      nextRunAt,
+      runCount: 0,
+      receipts: []
+    };
+
+    const messages = readMessages();
+    messages.unshift(newMsg);
+    writeMessages(messages);
+
+    if (scheduleType === "immediate") {
+      const dispatched = dispatchBroadcastMessage(id, false);
+      return res.json({ success: true, message: dispatched });
+    } else {
+      // Audit scheduled job creation
+      const db = readDatabase();
+      db.logs.unshift({
+        id: "log_" + Date.now(),
+        timestamp: createdAt,
+        operator: sender,
+        action: "Agendamento de Mensagem",
+        targetUser: targetMode === "all" ? "Todas as máquinas" : `${targetMachines.length} máquina(s)`,
+        details: `Agendamento '${scheduleType}' criado para "${newMsg.title}". Próximo disparo: ${nextRunAt || scheduledAt}.`,
+        type: "info"
+      });
+      writeDatabase(db);
+      broadcastWsEvent("message:updated", newMsg);
+      return res.json({ success: true, message: newMsg });
+    }
+  } catch (err: any) {
+    console.error("Erro ao enviar/agendar mensagem:", err);
+    return res.status(500).json({ error: err.message || "Erro interno ao processar mensagem." });
+  }
+});
+
+// POST /api/messages/:id/dispatch-now
+app.post("/api/messages/:id/dispatch-now", (req, res) => {
+  const { id } = req.params;
+  const dispatched = dispatchBroadcastMessage(id, false);
+  if (!dispatched) {
+    return res.status(404).json({ error: "Mensagem não encontrada." });
+  }
+  return res.json({ success: true, message: dispatched });
+});
+
+// POST /api/messages/:id/toggle-pause
+app.post("/api/messages/:id/toggle-pause", (req, res) => {
+  const { id } = req.params;
+  const messages = readMessages();
+  const idx = messages.findIndex((m) => m.id === id);
+  if (idx === -1) return res.status(404).json({ error: "Agendamento não encontrado." });
+
+  const msg = messages[idx];
+  if (msg.status === "agendada") {
+    msg.status = "pausada";
+  } else if (msg.status === "pausada") {
+    msg.status = "agendada";
+    msg.nextRunAt = computeNextRunAt(msg.scheduleType, msg.scheduledAt, msg.recurrenceTime, msg.recurrenceDays, false);
+  }
+  messages[idx] = msg;
+  writeMessages(messages);
+  broadcastWsEvent("message:updated", msg);
+  return res.json({ success: true, message: msg });
+});
+
+// DELETE /api/messages/:id
+app.delete("/api/messages/:id", (req, res) => {
+  const { id } = req.params;
+  const messages = readMessages();
+  const filtered = messages.filter((m) => m.id !== id);
+  writeMessages(filtered);
+  broadcastWsEvent("message:deleted", { id });
+  return res.json({ success: true });
+});
+
+// POST /api/messages/:id/delivered
+app.post("/api/messages/:id/delivered", (req, res) => {
+  const { id } = req.params;
+  const { machineName, ipAddress } = req.body;
+  const messages = readMessages();
+  const idx = messages.findIndex((m) => m.id === id);
+  if (idx === -1) return res.status(404).json({ error: "Mensagem não encontrada." });
+
+  const msg = messages[idx];
+  const nowTs = getBrazilTimestamp();
+  const mUpper = String(machineName || "ESTACAO-LOCAL").toUpperCase();
+  const existing = msg.receipts.find((r) => r.machineName.toUpperCase() === mUpper);
+
+  if (existing) {
+    if (existing.status === "pendente") {
+      existing.status = "entregue";
+      existing.deliveredAt = nowTs;
+    }
+    if (ipAddress && !existing.ipAddress) existing.ipAddress = ipAddress;
+  } else {
+    msg.receipts.push({
+      machineName: machineName || "ESTACAO-LOCAL",
+      ipAddress,
+      status: "entregue",
+      deliveredAt: nowTs
+    });
+  }
+
+  messages[idx] = msg;
+  writeMessages(messages);
+  broadcastWsEvent("message:updated", msg);
+  return res.json({ success: true, message: msg });
+});
+
+// POST /api/messages/:id/ack
+app.post("/api/messages/:id/ack", (req, res) => {
+  const { id } = req.params;
+  const { machineName, username, ipAddress } = req.body;
+  const messages = readMessages();
+  const idx = messages.findIndex((m) => m.id === id);
+  if (idx === -1) return res.status(404).json({ error: "Mensagem não encontrada." });
+
+  const msg = messages[idx];
+  const nowTs = getBrazilTimestamp();
+  const mUpper = String(machineName || "ESTACAO-LOCAL").toUpperCase();
+  const existing = msg.receipts.find((r) => r.machineName.toUpperCase() === mUpper);
+
+  if (existing) {
+    existing.status = "confirmada";
+    existing.deliveredAt = existing.deliveredAt || nowTs;
+    existing.acknowledgedAt = nowTs;
+    existing.acknowledgedBy = username || existing.acknowledgedBy || "Usuário Logado";
+    if (ipAddress && !existing.ipAddress) existing.ipAddress = ipAddress;
+  } else {
+    msg.receipts.push({
+      machineName: machineName || "ESTACAO-LOCAL",
+      ipAddress,
+      status: "confirmada",
+      deliveredAt: nowTs,
+      acknowledgedAt: nowTs,
+      acknowledgedBy: username || "Usuário Logado"
+    });
+  }
+
+  messages[idx] = msg;
+  writeMessages(messages);
+  broadcastWsEvent("message:ack", { messageId: id, machineName, username, acknowledgedAt: nowTs, message: msg });
+  broadcastWsEvent("message:updated", msg);
+  return res.json({ success: true, message: msg });
+});
+
+// GET /api/messages/pending (For PowerShell Agent polling on Windows Desktops)
+app.get("/api/messages/pending", (req, res) => {
+  const machine = String(req.query.machine || "").trim().toUpperCase();
+  const messages = readMessages();
+
+  // Return messages sent in the last 15 minutes matching this machine that haven't been acked by it
+  const recentSent = messages.filter((m) => {
+    if (m.status !== "enviada" && m.runCount === 0) return false;
+    if (m.targetMode === "selected" && machine) {
+      const targetMatch = m.targetMachines.some((t) => t.toUpperCase() === machine);
+      if (!targetMatch) return false;
+    }
+    if (machine) {
+      const acked = m.receipts.some((r) => r.machineName.toUpperCase() === machine && r.status === "confirmada");
+      if (acked) return false;
+    }
+    return true;
+  }).slice(0, 5);
+
+  res.json({ messages: recentSent });
+});
+
+// GET /api/messages/stream (Server-Sent Events for PowerShell / Desktop Listeners)
+app.get("/api/messages/stream", (req, res) => {
+  const machineName = String(req.query.machine || "ESTACAO-SSE").trim();
+  const clientId = "sse_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6);
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  sseClients.set(clientId, { res, machineName });
+  res.write(`event: connected\ndata: ${JSON.stringify({ clientId, machineName })}\n\n`);
+
+  const keepAlive = setInterval(() => {
+    try {
+      res.write(": ping\n\n");
+    } catch {
+      clearInterval(keepAlive);
+    }
+  }, 25000);
+
+  req.on("close", () => {
+    clearInterval(keepAlive);
+    sseClients.delete(clientId);
+  });
+});
+
+// GET /api/messages/powershell-script
+app.get("/api/messages/powershell-script", (req, res) => {
+  const cfg = readConfig();
+  const type = String(req.query.type || "push");
+  const title = String(req.query.title || "Aviso Importante de TI");
+  const body = String(req.query.body || "Favor salvar seus documentos. Reinicializacao programada em 10 minutos.");
+  const urgency = String(req.query.urgency || "warning");
+  const targetMode = req.query.targetMode === "selected" ? "selected" : "all";
+  const targetMachines = req.query.targets
+    ? String(req.query.targets).split(",").map((s) => s.trim()).filter(Boolean)
+    : [];
+  const protocol = req.headers["x-forwarded-proto"] || req.protocol || "http";
+  const host = req.headers.host || `localhost:${PORT}`;
+  const serverUrl = `${protocol}://${host}`;
+
+  const scriptContent =
+    type === "agent"
+      ? generateAgentPowerShellScript(serverUrl)
+      : generatePushPowerShellScript({
+          title,
+          body,
+          urgency,
+          targetMode,
+          targetMachines,
+          domain: cfg.domain || "inema.intranet",
+          serverUrl
+        });
+
+  if (req.query.download === "true") {
+    const fileName = type === "agent" ? "DirectoryAdmin-DesktopAgent.ps1" : "Enviar-Alerta-AD.ps1";
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    return res.send(scriptContent);
+  }
+
+  return res.json({ script: scriptContent });
+});
+
 // --- Vite Middleware / Production Server Config ---
 
 async function bootstrap() {
+  const httpServer = http.createServer(app);
+
+  // Attach Real-Time WebSocket Server for Desktop Pop-ups & Live Console Sync
+  const wss = new WebSocketServer({ server: httpServer, path: "/ws/messages" });
+
+  wss.on("connection", (ws, req) => {
+    const reqUrl = new URL(req.url || "/ws/messages", `http://${req.headers.host || "localhost"}`);
+    const machineName = (reqUrl.searchParams.get("machine") || "CONSOLE-WEB").trim();
+    const username = (reqUrl.searchParams.get("user") || "admin").trim();
+    const role = reqUrl.searchParams.get("role") === "workstation" ? "workstation" : "console";
+    const clientId = "ws_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6);
+    const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress || "";
+
+    connectedWsClients.set(clientId, {
+      ws,
+      clientId,
+      machineName,
+      username,
+      role,
+      ip,
+      connectedAt: getBrazilTimestamp()
+    });
+
+    // Notify client with initial status and broadcast updated client list
+    try {
+      ws.send(JSON.stringify({
+        type: "init",
+        payload: {
+          clientId,
+          machineName,
+          connectedWorkstations: getConnectedWorkstationsSnapshot()
+        }
+      }));
+    } catch {}
+
+    broadcastWsEvent("clients:status", getConnectedWorkstationsSnapshot());
+
+    ws.on("message", (raw) => {
+      try {
+        const parsed = JSON.parse(raw.toString());
+        if (parsed.type === "register") {
+          const meta = connectedWsClients.get(clientId);
+          if (meta) {
+            if (parsed.machineName) meta.machineName = String(parsed.machineName).trim();
+            if (parsed.username) meta.username = String(parsed.username).trim();
+            if (parsed.role === "workstation" || parsed.role === "console") meta.role = parsed.role;
+            broadcastWsEvent("clients:status", getConnectedWorkstationsSnapshot());
+          }
+        }
+      } catch {}
+    });
+
+    ws.on("close", () => {
+      connectedWsClients.delete(clientId);
+      broadcastWsEvent("clients:status", getConnectedWorkstationsSnapshot());
+    });
+  });
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: false
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);
@@ -2872,8 +3812,8 @@ async function bootstrap() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server rodando com sucesso na porta ${PORT}`);
+  httpServer.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server + WebSocket rodando com sucesso na porta ${PORT}`);
   });
 }
 

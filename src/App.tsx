@@ -19,10 +19,13 @@ import {
   Shield,
   FileCode,
   LogOut,
-  Monitor
+  Monitor,
+  Megaphone,
+  Radio,
+  Bell
 } from 'lucide-react';
 
-import { ADUser, AuditLog, ADComputer } from './types';
+import { ADUser, AuditLog, ADComputer, BroadcastMessage, ConnectedWorkstation } from './types';
 import { initialUsers, initialAuditLogs } from './mockData';
 
 // Component Imports
@@ -37,8 +40,20 @@ import AdConfigPanel from './components/AdConfigPanel';
 import GroupPolicies from './components/GroupPolicies';
 import Scripts from './components/Scripts';
 import Login from './components/Login';
+import BroadcastMessages from './components/BroadcastMessages';
+import DesktopPopupOverlay from './components/DesktopPopupOverlay';
 
 export default function App() {
+  // Check if launched in Standalone Workstation Popup Receiver mode (?receiver=HOSTNAME)
+  const receiverMachine = (() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('receiver')?.trim() || '';
+    } catch {
+      return '';
+    }
+  })();
+
   // Navigation State
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   
@@ -68,15 +83,36 @@ export default function App() {
   const [useDemoMode, setUseDemoMode] = useState<boolean>(true);
   const [adStatus, setAdStatus] = useState<any>(null);
 
+  // Broadcast Messaging & Real-Time Pop-ups States
+  const [broadcastMessages, setBroadcastMessages] = useState<BroadcastMessage[]>([]);
+  const [connectedWorkstations, setConnectedWorkstations] = useState<ConnectedWorkstation[]>([]);
+  const [wsConnected, setWsConnected] = useState<boolean>(false);
+  const [showPopupsInConsole, setShowPopupsInConsole] = useState<boolean>(true);
+  const [testStationName, setTestStationName] = useState<string>('CONSOLE-ADMIN');
+
+  const refreshMessages = async () => {
+    try {
+      const res = await fetch('/api/messages');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.messages)) setBroadcastMessages(data.messages);
+        if (Array.isArray(data.connectedWorkstations)) setConnectedWorkstations(data.connectedWorkstations);
+      }
+    } catch (err) {
+      console.error('Erro ao buscar mensagens na rede:', err);
+    }
+  };
+
   // Fetch all active data from backend Express server
   const refreshData = async () => {
     try {
       setLoading(true);
-      const [usersRes, logsRes, statusRes, computersRes] = await Promise.all([
+      const [usersRes, logsRes, statusRes, computersRes, messagesRes] = await Promise.all([
         fetch('/api/ad/users'),
         fetch('/api/ad/logs'),
         fetch('/api/ad/status'),
-        fetch('/api/ad/computers')
+        fetch('/api/ad/computers'),
+        fetch('/api/messages')
       ]);
 
       if (usersRes.ok) {
@@ -123,6 +159,12 @@ export default function App() {
             localStorage.setItem('ad_computer_inactivity_threshold', statusData.config.computerInactivityDays.toString());
           }
         }
+      }
+
+      if (messagesRes && messagesRes.ok) {
+        const msgData = await messagesRes.json();
+        if (Array.isArray(msgData.messages)) setBroadcastMessages(msgData.messages);
+        if (Array.isArray(msgData.connectedWorkstations)) setConnectedWorkstations(msgData.connectedWorkstations);
       }
     } catch (err) {
       console.error('Erro ao buscar dados do servidor AD:', err);
@@ -365,6 +407,64 @@ export default function App() {
 
   const blockedUsersCount = users.filter(u => u.status === 'Bloqueada').length;
   const disabledComputersCount = computers.filter(c => c.status === 'Desativado').length;
+  const activeScheduledMessagesCount = broadcastMessages.filter(m => m.status === 'agendada').length;
+
+  // Standalone Workstation Receiver Mode (?receiver=HOSTNAME)
+  if (receiverMachine) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-6">
+        <div className="max-w-lg w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5 shadow-2xl">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
+                <Monitor className="w-5 h-5" />
+              </div>
+              <div>
+                <h1 className="text-sm font-bold text-white">Receptor de Alertas Desktop</h1>
+                <p className="text-xs text-slate-400 font-mono">{receiverMachine}</p>
+              </div>
+            </div>
+            <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${wsConnected ? 'text-emerald-400' : 'text-amber-400'}`}>
+              <Radio className="w-3.5 h-3.5" />
+              {wsConnected ? 'Conectado em Tempo Real' : 'Reconectando...'}
+            </span>
+          </div>
+
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Esta janela simula ou opera como o agente receptor conectado em tempo real para a estação{' '}
+            <strong className="text-white font-mono">{receiverMachine}</strong>. Qualquer aviso ou alerta de urgência enviado pelo console administrativo será exibido automaticamente como pop-up nesta tela.
+          </p>
+
+          <div className="flex items-center justify-between pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof Notification !== 'undefined') Notification.requestPermission();
+              }}
+              className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 cursor-pointer inline-flex items-center gap-1.5"
+            >
+              <Bell className="w-3.5 h-3.5 text-blue-400" />
+              Permitir Notificações Windows
+            </button>
+            <a
+              href="/"
+              className="text-xs text-blue-400 hover:text-blue-300 font-medium"
+            >
+              Voltar ao Console Admin
+            </a>
+          </div>
+        </div>
+
+        <DesktopPopupOverlay
+          stationName={receiverMachine}
+          username="usuario.estacao"
+          role="workstation"
+          showPopupsInConsole={true}
+          onWsStatusChange={setWsConnected}
+        />
+      </div>
+    );
+  }
 
   if (!currentUser) {
     return (
@@ -542,6 +642,29 @@ export default function App() {
             )}
           </div>
 
+          {/* Broadcast Messages Item */}
+          <div 
+            onClick={() => {
+              setActiveTab('mensagens');
+              setDashboardFilter(null);
+            }}
+            className={`p-3 rounded-md flex items-center justify-between transition-all cursor-pointer ${
+              activeTab === 'mensagens' 
+                ? 'active-nav text-white font-medium' 
+                : 'hover:bg-slate-800 text-slate-300'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Megaphone className="w-4 h-4 opacity-80" />
+              <span className="text-xs opacity-90">Mensagens na Rede</span>
+            </div>
+            {activeScheduledMessagesCount > 0 && (
+              <span className="bg-blue-500 text-white font-bold font-mono text-[9px] px-1.5 py-0.5 rounded-full" title="Agendamentos ativos">
+                {activeScheduledMessagesCount}
+              </span>
+            )}
+          </div>
+
           {/* Logs Item */}
           <div 
             onClick={() => setActiveTab('logs')}
@@ -644,6 +767,7 @@ export default function App() {
             {activeTab === 'scripts' && 'Scripts de Logon de Inicialização (.BAT)'}
             {activeTab === 'relatorios' && 'Relatório Customizado de Auditoria'}
             {activeTab === 'alertas' && 'Central de Alertas de Inatividade'}
+            {activeTab === 'mensagens' && 'Mensageria na Rede & Pop-ups em Tempo Real'}
             {activeTab === 'logs' && 'Logs de Auditoria AD'}
             {activeTab === 'config' && 'Configuração de Conexão com AD Local'}
           </h1>
@@ -816,6 +940,34 @@ export default function App() {
             </motion.div>
           )}
 
+          {activeTab === 'mensagens' && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25 }}
+            >
+              <BroadcastMessages 
+                computers={computers}
+                messages={broadcastMessages}
+                connectedWorkstations={connectedWorkstations}
+                wsConnected={wsConnected}
+                currentUsername={currentUser?.username || 'admin.silva'}
+                adDomain={adStatus?.config?.domain || 'inema.intranet'}
+                showPopupsInConsole={showPopupsInConsole}
+                onTogglePopupsInConsole={setShowPopupsInConsole}
+                testStationName={testStationName}
+                onChangeTestStationName={setTestStationName}
+                onRefreshMessages={refreshMessages}
+                onMessageCreated={(msg) => {
+                  setBroadcastMessages(prev => {
+                    const filtered = prev.filter(m => m.id !== msg.id);
+                    return [msg, ...filtered];
+                  });
+                }}
+              />
+            </motion.div>
+          )}
+
           {activeTab === 'logs' && (
             <motion.div 
               initial={{ opacity: 0, y: 10 }}
@@ -841,6 +993,31 @@ export default function App() {
         </div>
 
       </main>
+
+      {/* Global Real-Time WebSocket Desktop Popup Overlay & Sync */}
+      <DesktopPopupOverlay
+        stationName={testStationName}
+        username={currentUser?.username || 'admin.silva'}
+        role="console"
+        showPopupsInConsole={showPopupsInConsole}
+        onWsStatusChange={setWsConnected}
+        onClientsUpdated={setConnectedWorkstations}
+        onBroadcastReceived={(msg) => {
+          setBroadcastMessages(prev => {
+            const exists = prev.some(m => m.id === msg.id);
+            return exists ? prev.map(m => (m.id === msg.id ? msg : m)) : [msg, ...prev];
+          });
+        }}
+        onMessageUpdated={(msg) => {
+          setBroadcastMessages(prev => {
+            const exists = prev.some(m => m.id === msg.id);
+            return exists ? prev.map(m => (m.id === msg.id ? msg : m)) : [msg, ...prev];
+          });
+        }}
+        onMessageDeleted={(id) => {
+          setBroadcastMessages(prev => prev.filter(m => m.id !== id));
+        }}
+      />
 
     </div>
   );

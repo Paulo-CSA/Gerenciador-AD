@@ -81,5 +81,56 @@ export interface ComputerInactivitySetting {
   notifyEmail: string;
 }
 
+export type MessageUrgency = 'info' | 'warning' | 'urgent';
+
+export type BroadcastScheduleType = 'immediate' | 'once' | 'daily' | 'weekly' | 'monthly';
+
+export type BroadcastStatus = 'enviada' | 'agendada' | 'pausada' | 'cancelada';
+
+export interface MachineDeliveryReceipt {
+  machineName: string;
+  ipAddress?: string;
+  status: 'pendente' | 'entregue' | 'confirmada';
+  deliveredAt?: string;
+  acknowledgedAt?: string;
+  acknowledgedBy?: string;
+}
+
+export interface BroadcastMessage {
+  id: string;
+  title: string;
+  body: string;
+  urgency: MessageUrgency;
+  category: string;
+  sender: string;
+  targetMode: 'all' | 'selected';
+  targetMachines: string[];
+  onlyActiveMachines?: boolean;
+  requireAck: boolean;
+  playSound: boolean;
+  autoCloseSeconds: number;
+  deliveryMethod: 'realtime_agent' | 'powershell_msg' | 'hybrid';
+  scheduleType: BroadcastScheduleType;
+  scheduledAt?: string;
+  recurrenceTime?: string;
+  recurrenceDays?: number[];
+  status: BroadcastStatus;
+  createdAt: string;
+  sentAt?: string;
+  nextRunAt?: string;
+  runCount: number;
+  receipts: MachineDeliveryReceipt[];
+}
+
+export interface ConnectedWorkstation {
+  clientId: string;
+  machineName: string;
+  username?: string;
+  role: 'workstation' | 'console';
+  ip?: string;
+  connectedAt: string;
+}
+
+
 
 

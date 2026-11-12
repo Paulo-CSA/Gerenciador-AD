@@ -318,6 +318,33 @@
   ],
   "logs": [
     {
+      "id": "log_1794512281380",
+      "timestamp": "2026-11-12 16:38:01",
+      "operator": "admin.silva",
+      "action": "Envio de Alerta na Rede",
+      "targetUser": "1 máquina(s): SMOKE-PC-01",
+      "details": "[URGENT] \"Alerta WS Real\" enviada em tempo real para 1 máquina(s): SMOKE-PC-01.",
+      "type": "danger"
+    },
+    {
+      "id": "log_1794512269351",
+      "timestamp": "2026-11-12 16:37:49",
+      "operator": "admin.silva",
+      "action": "Agendamento de Mensagem",
+      "targetUser": "1 máquina(s)",
+      "details": "Agendamento 'daily' criado para \"Teste Smoke Agendado\". Próximo disparo: 2026-11-13T09:00:00.000Z.",
+      "type": "info"
+    },
+    {
+      "id": "log_1794512269040",
+      "timestamp": "2026-11-12 16:37:49",
+      "operator": "admin.silva",
+      "action": "Envio de Alerta na Rede",
+      "targetUser": "Todas as máquinas ativas",
+      "details": "[URGENT] \"Teste Smoke Imediato\" enviada em tempo real para Todas as máquinas ativas.",
+      "type": "danger"
+    },
+    {
       "id": "log_1792678776332",
       "timestamp": "2026-10-22 11:19:36",
       "operator": "admin.silva",
