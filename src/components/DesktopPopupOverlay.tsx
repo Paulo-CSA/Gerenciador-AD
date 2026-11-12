@@ -144,15 +144,18 @@ export default function DesktopPopupOverlay({
               const msg: BroadcastMessage = parsed.payload;
               callbacksRef.current.onBroadcastReceived?.(msg);
 
-              const currentStation = callbacksRef.current.stationName.toUpperCase();
-              const targetsUpper = (msg.targetMachines || []).map((t) => t.toUpperCase());
+              const currentStation = callbacksRef.current.stationName.split('.')[0].toUpperCase();
+              const targetsUpper = (msg.targetMachines || []).map((t) => t.split('.')[0].toUpperCase());
               const matchesStation =
                 msg.targetMode === 'all' ||
                 currentStation === 'ALL' ||
-                targetsUpper.includes(currentStation) ||
-                callbacksRef.current.role === 'console';
+                targetsUpper.includes(currentStation);
 
-              if (matchesStation && (callbacksRef.current.role === 'workstation' || callbacksRef.current.showPopupsInConsole)) {
+              const canDisplayHere =
+                callbacksRef.current.role === 'workstation' ||
+                (callbacksRef.current.showPopupsInConsole && matchesStation);
+
+              if (matchesStation && canDisplayHere) {
                 setActivePopups((prev) => {
                   if (prev.some((p) => p.id === msg.id)) return prev;
                   return [msg, ...prev];

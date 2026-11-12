@@ -318,6 +318,15 @@
   ],
   "logs": [
     {
+      "id": "log_1794513272455",
+      "timestamp": "2026-11-12 16:54:32",
+      "operator": "admin.silva",
+      "action": "Envio de Alerta na Rede",
+      "targetUser": "2 máquina(s): NB-INEMA-12440, MAQUINA-SEM-AGENTE",
+      "details": "[URGENT] \"Teste Entrega Real\" processada para 2 máquina(s): NB-INEMA-12440, MAQUINA-SEM-AGENTE (1 com canal ativo, 1 aguardando agente/push).",
+      "type": "danger"
+    },
+    {
       "id": "log_1794512281380",
       "timestamp": "2026-11-12 16:38:01",
       "operator": "admin.silva",

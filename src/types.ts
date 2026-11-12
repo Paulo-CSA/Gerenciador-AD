@@ -127,8 +127,21 @@ export interface ConnectedWorkstation {
   machineName: string;
   username?: string;
   role: 'workstation' | 'console';
+  channel?: 'websocket' | 'powershell_agent';
   ip?: string;
   connectedAt: string;
+  lastSeenAt?: string;
+}
+
+export interface BroadcastDeliverySummary {
+  totalTargets: number;
+  onlineAgentCount: number;
+  pendingAgentCount: number;
+  nativePushAttempted: boolean;
+  nativePushSucceeded: number;
+  nativePushFailed: number;
+  serverPlatform: string;
+  offlineMachines: string[];
 }
 
 

@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import {
   ADComputer,
+  BroadcastDeliverySummary,
   BroadcastMessage,
   BroadcastScheduleType,
   ConnectedWorkstation,
@@ -156,7 +157,15 @@ export default function BroadcastMessages({
 
   // Action & feedback states
   const [submitting, setSubmitting] = useState(false);
-  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'warning' | 'error'; text: string } | null>(null);
+  const [lastDeliveryNotice, setLastDeliveryNotice] = useState<{
+    messageId: string;
+    title: string;
+    summary: BroadcastDeliverySummary;
+    targetMode: 'all' | 'selected';
+    targets: string[];
+  } | null>(null);
+  const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
   const [detailMessage, setDetailMessage] = useState<BroadcastMessage | null>(null);
 
   // PowerShell tab states
@@ -165,9 +174,17 @@ export default function BroadcastMessages({
   const [loadingPs, setLoadingPs] = useState(false);
   const [copiedPs, setCopiedPs] = useState(false);
 
-  const showToast = (type: 'success' | 'error', text: string) => {
+  const showToast = (type: 'success' | 'warning' | 'error', text: string) => {
     setFeedback({ type, text });
-    window.setTimeout(() => setFeedback(null), 5000);
+    window.setTimeout(() => setFeedback(null), 6500);
+  };
+
+  const copyQuickCommand = (key: string, cmd: string) => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(cmd);
+      setCopiedCmd(key);
+      window.setTimeout(() => setCopiedCmd(null), 2500);
+    }
   };
 
   // Distinct OUs for target machine filter
@@ -212,6 +229,14 @@ export default function BroadcastMessages({
     () => connectedWorkstations.filter((c) => c.role === 'workstation'),
     [connectedWorkstations]
   );
+
+  const onlineWorkstationSet = useMemo(() => {
+    const set = new Set<string>();
+    workstationClients.forEach((c) => {
+      if (c.machineName) set.add(c.machineName.split('.')[0].toUpperCase());
+    });
+    return set;
+  }, [workstationClients]);
 
   const ackStats = useMemo(() => {
     let total = 0;
@@ -355,14 +380,36 @@ exit /b 0`;
       } else {
         if (data.message) onMessageCreated?.(data.message);
         await onRefreshMessages();
-        showToast(
-          'success',
-          scheduleType === 'immediate'
-            ? 'Alerta disparado em tempo real para as estações selecionadas!'
-            : 'Agendamento automático salvo e ativado no servidor!'
-        );
+
         if (scheduleType !== 'immediate') {
+          setLastDeliveryNotice(null);
+          showToast('success', 'Agendamento automático salvo e ativado no servidor!');
           setSubTab('schedules');
+        } else {
+          const summary: BroadcastDeliverySummary | undefined = data.deliverySummary;
+          if (summary && summary.pendingAgentCount > 0) {
+            setLastDeliveryNotice({
+              messageId: data.message?.id || '',
+              title: title.trim(),
+              summary,
+              targetMode,
+              targets: targetMode === 'all' ? [] : selectedMachines
+            });
+            if (summary.onlineAgentCount > 0) {
+              showToast(
+                'warning',
+                `Pop-up entregue em ${summary.onlineAgentCount} estação(ões) online. ${summary.pendingAgentCount} máquina(s) aguardando agente ou disparo PowerShell.`
+              );
+            } else {
+              showToast(
+                'warning',
+                `Mensagem salva na fila, mas nenhuma estação alvo está com o Agente Receptor conectado neste momento.`
+              );
+            }
+          } else {
+            setLastDeliveryNotice(null);
+            showToast('success', 'Pop-up entregue em tempo real nas estações selecionadas!');
+          }
         }
       }
     } catch (err: any) {
@@ -375,9 +422,29 @@ exit /b 0`;
   const handleDispatchNow = async (id: string) => {
     try {
       const res = await fetch(`/api/messages/${id}/dispatch-now`, { method: 'POST' });
+      const data = await res.json();
       if (res.ok) {
         await onRefreshMessages();
-        showToast('success', 'Mensagem disparada imediatamente em tempo real!');
+        const summary: BroadcastDeliverySummary | undefined = data.deliverySummary;
+        if (summary && summary.pendingAgentCount > 0 && data.message) {
+          setLastDeliveryNotice({
+            messageId: data.message.id,
+            title: data.message.title,
+            summary,
+            targetMode: data.message.targetMode,
+            targets: data.message.targetMachines || []
+          });
+          setSubTab('compose');
+          showToast(
+            'warning',
+            summary.onlineAgentCount > 0
+              ? `Entregue em ${summary.onlineAgentCount} estação(ões) online; ${summary.pendingAgentCount} aguardando agente/push.`
+              : 'Mensagem colocada na fila, mas as estações alvo não estão com o Agente Receptor conectado.'
+          );
+        } else {
+          setLastDeliveryNotice(null);
+          showToast('success', 'Mensagem disparada imediatamente em tempo real!');
+        }
       }
     } catch {
       showToast('error', 'Erro ao disparar mensagem.');
@@ -422,6 +489,7 @@ exit /b 0`;
     const params = new URLSearchParams({
       type,
       download: 'true',
+      messageId: customMsg?.id || '',
       title: customMsg?.title || title || 'Aviso Importante de TI',
       body: customMsg?.body || body || 'Favor salvar seus documentos.',
       urgency: customMsg?.urgency || urgency,
@@ -445,7 +513,10 @@ exit /b 0`;
   };
 
   const openWorkstationReceiverTab = () => {
-    const machine = testStationName || 'NB-INEMA-12440';
+    const machine =
+      testStationName !== 'CONSOLE-ADMIN'
+        ? testStationName
+        : selectedMachines[0] || 'NB-INEMA-12440';
     const url = `${window.location.origin}/?receiver=${encodeURIComponent(machine)}`;
     const link = document.createElement('a');
     link.href = url;
@@ -526,12 +597,16 @@ exit /b 0`;
           className={`p-3.5 rounded-xl border flex items-center justify-between text-xs font-medium ${
             feedback.type === 'success'
               ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : feedback.type === 'warning'
+              ? 'bg-amber-50 border-amber-200 text-amber-900'
               : 'bg-red-50 border-red-200 text-red-800'
           }`}
         >
           <div className="flex items-center gap-2">
             {feedback.type === 'success' ? (
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            ) : feedback.type === 'warning' ? (
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
             ) : (
               <AlertOctagon className="w-4 h-4 text-red-600 shrink-0" />
             )}
@@ -540,6 +615,101 @@ exit /b 0`;
           <button type="button" onClick={() => setFeedback(null)} className="cursor-pointer opacity-70 hover:opacity-100">
             <X className="w-4 h-4" />
           </button>
+        </div>
+      )}
+
+      {/* Actionable Delivery Diagnosis when target workstations are not running the Desktop Agent */}
+      {lastDeliveryNotice && lastDeliveryNotice.summary.pendingAgentCount > 0 && (
+        <div className="bg-amber-50/90 border border-amber-300 rounded-xl p-5 space-y-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <h4 className="text-sm font-bold text-slate-900">
+                  Ação necessária para exibir o pop-up na tela da estação remota
+                </h4>
+                <p className="text-xs text-slate-700 leading-relaxed">
+                  O alerta <strong>"{lastDeliveryNotice.title}"</strong> está pronto para{' '}
+                  <strong>
+                    {lastDeliveryNotice.summary.offlineMachines.length > 0
+                      ? lastDeliveryNotice.summary.offlineMachines.join(', ')
+                      : `${lastDeliveryNotice.summary.pendingAgentCount} máquina(s)`}
+                  </strong>
+                  , mas {lastDeliveryNotice.summary.onlineAgentCount === 0 ? 'nenhuma delas está' : 'parte delas não está'} com o{' '}
+                  <strong>Agente Desktop Windows</strong> ativo no momento
+                  {lastDeliveryNotice.summary.serverPlatform !== 'win32'
+                    ? ` (o servidor web atual roda em ${lastDeliveryNotice.summary.serverPlatform}, sem acesso RPC/msg.exe direto à intranet)`
+                    : ''}
+                  . Escolha uma das opções abaixo para entregar na tela da estação:
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setLastDeliveryNotice(null)}
+              className="text-slate-400 hover:text-slate-700 cursor-pointer p-1"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {/* Option 1: Instant Push from Admin's Windows PC */}
+            <div className="bg-white border border-amber-200 rounded-lg p-3.5 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-slate-900">
+                  1. Disparar AGORA do seu PC Admin Windows (Rede Interna)
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    copyQuickCommand(
+                      'push_now',
+                      `powershell -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; irm '${window.location.origin}/api/messages/push.ps1?messageId=${encodeURIComponent(lastDeliveryNotice.messageId)}' | iex"`
+                    )
+                  }
+                  className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-md text-[11px] font-semibold cursor-pointer inline-flex items-center gap-1 shrink-0"
+                >
+                  {copiedCmd === 'push_now' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                  {copiedCmd === 'push_now' ? 'Copiado!' : 'Copiar Comando'}
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                Cole no PowerShell do seu computador na rede <code className="font-mono">{adDomain}</code>: envia imediatamente via <code className="font-mono">msg.exe</code> e WinRM WPF para a estação alvo e atualiza o recibo aqui.
+              </p>
+              <pre className="p-2 bg-slate-900 text-slate-200 rounded text-[10px] font-mono overflow-x-auto">
+                {`powershell -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; irm '${window.location.origin}/api/messages/push.ps1?messageId=${encodeURIComponent(lastDeliveryNotice.messageId)}' | iex"`}
+              </pre>
+            </div>
+
+            {/* Option 2: Run Agent on Target Machine */}
+            <div className="bg-white border border-amber-200 rounded-lg p-3.5 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-slate-900">
+                  2. Ativar Agente em Tempo Real na Estação (ou GPO)
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    copyQuickCommand(
+                      'agent_now',
+                      `powershell -ExecutionPolicy Bypass -WindowStyle Hidden -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; irm '${window.location.origin}/api/messages/agent.ps1' | iex"`
+                    )
+                  }
+                  className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-[11px] font-semibold cursor-pointer inline-flex items-center gap-1 shrink-0"
+                >
+                  {copiedCmd === 'agent_now' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                  {copiedCmd === 'agent_now' ? 'Copiado!' : 'Copiar Agente'}
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                Execute na estação Windows (ou implante na GPO de logon): a máquina aparecerá como <strong>Online</strong> no painel e abrirá o pop-up automaticamente em até 3 segundos.
+              </p>
+              <pre className="p-2 bg-slate-900 text-slate-200 rounded text-[10px] font-mono overflow-x-auto">
+                {`powershell -ExecutionPolicy Bypass -WindowStyle Hidden -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; irm '${window.location.origin}/api/messages/agent.ps1' | iex"`}
+              </pre>
+            </div>
+          </div>
         </div>
       )}
 
@@ -655,11 +825,11 @@ exit /b 0`;
               onChange={(e) => onTogglePopupsInConsole(e.target.checked)}
               className="rounded border-slate-300"
             />
-            Exibir pop-up ao vivo neste console
+            Simular pop-up neste console
           </label>
           <div className="h-4 w-px bg-slate-200 hidden sm:block" />
           <div className="flex items-center gap-1.5">
-            <span className="text-slate-500">Estação teste:</span>
+            <span className="text-slate-500">Estação simulada:</span>
             <select
               value={testStationName}
               onChange={(e) => onChangeTestStationName(e.target.value)}
@@ -1155,6 +1325,7 @@ exit /b 0`;
                     ) : (
                       filteredComputers.map((comp) => {
                         const checked = selectedMachines.includes(comp.name);
+                        const isAgentOnline = onlineWorkstationSet.has(comp.name.split('.')[0].toUpperCase());
                         const isSrv =
                           comp.name.toLowerCase().startsWith('srv') ||
                           comp.operatingSystem.toLowerCase().includes('server');
@@ -1192,13 +1363,28 @@ exit /b 0`;
                                 </p>
                               </div>
                             </div>
-                            <span
-                              className={`text-[10px] font-medium shrink-0 ${
-                                comp.status === 'Desativado' ? 'text-slate-400' : 'text-emerald-600'
-                              }`}
-                            >
-                              {comp.status}
-                            </span>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span
+                                className={`text-[10px] font-semibold ${
+                                  isAgentOnline ? 'text-emerald-600' : 'text-slate-400'
+                                }`}
+                                title={
+                                  isAgentOnline
+                                    ? 'Agente Desktop conectado em tempo real'
+                                    : 'Sem Agente Desktop conectado (recebe via script PowerShell/msg.exe ou quando o agente iniciar)'
+                                }
+                              >
+                                {isAgentOnline ? 'Agente Online' : 'Sem Agente'}
+                              </span>
+                              <span className="text-slate-200">|</span>
+                              <span
+                                className={`text-[10px] font-medium ${
+                                  comp.status === 'Desativado' ? 'text-slate-400' : 'text-slate-600'
+                                }`}
+                              >
+                                {comp.status}
+                              </span>
+                            </div>
                           </div>
                         );
                       })

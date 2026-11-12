@@ -87,7 +87,7 @@ export default function App() {
   const [broadcastMessages, setBroadcastMessages] = useState<BroadcastMessage[]>([]);
   const [connectedWorkstations, setConnectedWorkstations] = useState<ConnectedWorkstation[]>([]);
   const [wsConnected, setWsConnected] = useState<boolean>(false);
-  const [showPopupsInConsole, setShowPopupsInConsole] = useState<boolean>(true);
+  const [showPopupsInConsole, setShowPopupsInConsole] = useState<boolean>(false);
   const [testStationName, setTestStationName] = useState<string>('CONSOLE-ADMIN');
 
   const refreshMessages = async () => {
