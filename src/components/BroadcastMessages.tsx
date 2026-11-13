@@ -135,6 +135,7 @@ export default function BroadcastMessages({
   const [targetMode, setTargetMode] = useState<'all' | 'selected'>('all');
   const [selectedMachines, setSelectedMachines] = useState<string[]>([]);
   const [onlyActiveMachines, setOnlyActiveMachines] = useState(true);
+  const [ignoreWindowsServer, setIgnoreWindowsServer] = useState(true);
   const [machineSearch, setMachineSearch] = useState('');
   const [machineOuFilter, setMachineOuFilter] = useState('todos');
 
@@ -188,6 +189,39 @@ export default function BroadcastMessages({
       window.setTimeout(() => setCopiedCmd(null), 2500);
     }
   };
+
+  const isServerOrExcludedOU = (c: ADComputer) => {
+    const os = (c.operatingSystem || '').toLowerCase();
+    if (os.includes('windows server')) return true;
+
+    const ouNorm = (c.ou || '').replace(/\\/g, '/').toLowerCase();
+    const canonicalNorm = ((c as any).canonicalPath || '').replace(/\\/g, '/').toLowerCase();
+    const dnNorm = ((c as any).dn || (c as any).distinguishedName || '').toLowerCase();
+
+    return (
+      ouNorm.includes('servidores/windows') ||
+      ouNorm.includes('ou=windows,ou=servidores') ||
+      ouNorm.includes('ou=servidores/ou=windows') ||
+      canonicalNorm.includes('/servidores/windows') ||
+      canonicalNorm.endsWith('servidores/windows') ||
+      /ou=windows\s*,\s*ou=servidores/i.test(dnNorm)
+    );
+  };
+
+  const eligibleAllComputers = useMemo(() => {
+    return computers.filter((c) => {
+      if (onlyActiveMachines && c.status === 'Desativado') return false;
+      if (ignoreWindowsServer && isServerOrExcludedOU(c)) return false;
+      return true;
+    });
+  }, [computers, onlyActiveMachines, ignoreWindowsServer]);
+
+  const excludedServerCount = useMemo(() => {
+    return computers.filter((c) => {
+      if (onlyActiveMachines && c.status === 'Desativado') return false;
+      return isServerOrExcludedOU(c);
+    }).length;
+  }, [computers, onlyActiveMachines]);
 
   // Distinct OUs for target machine filter
   const distinctOUs = useMemo(() => {
@@ -280,7 +314,9 @@ export default function BroadcastMessages({
           body: body || 'Favor salvar seus documentos. Manutenção programada em 15 minutos.',
           urgency,
           targetMode,
-          targets: selectedMachines.join(',')
+          targets: selectedMachines.join(','),
+          onlyActiveMachines: String(onlyActiveMachines),
+          ignoreWindowsServer: String(ignoreWindowsServer)
         });
         const res = await fetch(`/api/messages/powershell-script?${params.toString()}`);
         const data = await res.json();
@@ -293,7 +329,7 @@ export default function BroadcastMessages({
     };
 
     loadScript();
-  }, [subTab, psTab, title, body, urgency, targetMode, selectedMachines]);
+  }, [subTab, psTab, title, body, urgency, targetMode, selectedMachines, onlyActiveMachines, ignoreWindowsServer]);
 
   const gpoBatWrapper = useMemo(() => {
     return `@echo off
@@ -365,6 +401,7 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new 
         targetMode,
         targetMachines: targetMode === 'all' ? [] : selectedMachines,
         onlyActiveMachines,
+        ignoreWindowsServer,
         requireAck,
         playSound,
         autoCloseSeconds,
@@ -518,7 +555,9 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new 
       body: customMsg?.body || body || 'Favor salvar seus documentos.',
       urgency: customMsg?.urgency || urgency,
       targetMode: customMsg?.targetMode || targetMode,
-      targets: (customMsg?.targetMachines || selectedMachines).join(',')
+      targets: (customMsg?.targetMachines || selectedMachines).join(','),
+      onlyActiveMachines: String(customMsg?.onlyActiveMachines ?? onlyActiveMachines),
+      ignoreWindowsServer: String(customMsg?.ignoreWindowsServer ?? ignoreWindowsServer)
     });
     window.location.href = `/api/messages/powershell-script?${params.toString()}`;
   };
@@ -1232,8 +1271,10 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new 
                 Destino:{' '}
                 <strong className="text-slate-800">
                   {targetMode === 'all'
-                    ? onlyActiveMachines
-                      ? `Todas as máquinas ativas (${computers.filter((c) => c.status !== 'Desativado').length})`
+                    ? ignoreWindowsServer
+                      ? `Estações elegíveis (${eligibleAllComputers.length} de ${computers.length}, sem Servidores)`
+                      : onlyActiveMachines
+                      ? `Todas as máquinas ativas (${eligibleAllComputers.length})`
                       : `Todas as máquinas do AD (${computers.length})`
                     : `${selectedMachines.length} equipamento(s) selecionado(s)`}
                 </strong>
@@ -1323,17 +1364,31 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new 
                     </div>
                   </div>
 
-                  <label className="flex items-center gap-2 pt-2 border-t border-slate-200/70 text-xs text-slate-700 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={onlyActiveMachines}
-                      onChange={(e) => setOnlyActiveMachines(e.target.checked)}
-                      className="rounded border-slate-300"
-                    />
-                    <span>
-                      Ignorar máquinas desativadas no AD ({computers.filter((c) => c.status !== 'Desativado').length} ativas)
-                    </span>
-                  </label>
+                  <div className="pt-2 border-t border-slate-200/70 space-y-2">
+                    <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={onlyActiveMachines}
+                        onChange={(e) => setOnlyActiveMachines(e.target.checked)}
+                        className="rounded border-slate-300"
+                      />
+                      <span>
+                        Ignorar máquinas desativadas no AD ({computers.filter((c) => c.status !== 'Desativado').length} ativas)
+                      </span>
+                    </label>
+                    <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={ignoreWindowsServer}
+                        onChange={(e) => setIgnoreWindowsServer(e.target.checked)}
+                        className="mt-0.5 rounded border-slate-300"
+                      />
+                      <span>
+                        Ignorar <strong>Windows Server</strong> e OU <code className="font-mono text-[11px] bg-slate-200/70 px-1 rounded">SERVIDORES/WINDOWS</code>{' '}
+                        <span className="text-slate-500">({excludedServerCount} servidor(es) ignorado(s))</span>
+                      </span>
+                    </label>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -1595,7 +1650,9 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new 
                       </td>
                       <td className="py-3 px-4">
                         {msg.targetMode === 'all' ? (
-                          <span className="font-medium text-slate-700">Todas as Máquinas</span>
+                          <span className="font-medium text-slate-700">
+                            {msg.ignoreWindowsServer !== false ? 'Todas as Estações (excl. Servidores)' : 'Todas as Máquinas'}
+                          </span>
                         ) : (
                           <span className="font-mono text-[11px] text-slate-700">
                             {msg.targetMachines.length} equipamento(s)
@@ -1732,7 +1789,9 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new 
                         </td>
                         <td className="py-3 px-4">
                           {msg.targetMode === 'all' ? (
-                            <span>Todas as Máquinas ({receipts.length})</span>
+                            <span>
+                              {msg.ignoreWindowsServer !== false ? 'Estações (excl. Servidores)' : 'Todas as Máquinas'} ({receipts.length})
+                            </span>
                           ) : (
                             <span className="font-mono text-[11px]">
                               {msg.targetMachines.slice(0, 3).join(', ')}
@@ -1854,7 +1913,13 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new 
                   </p>
                   <p>
                     Executa apenas o comando nativo <code className="font-mono">msg.exe * /SERVER:MAQUINA</code> para{' '}
-                    <strong>{targetMode === 'all' ? 'todas as máquinas do AD' : `${selectedMachines.length || 1} máquina(s) selecionada(s)`}</strong>. Zero PowerShell e zero bloqueio de segurança.
+                    <strong>
+                      {targetMode === 'all'
+                        ? ignoreWindowsServer
+                          ? `estações elegíveis (${eligibleAllComputers.length}, ignorando Windows Server e OU SERVIDORES/WINDOWS)`
+                          : 'todas as máquinas do AD'
+                        : `${selectedMachines.length || 1} máquina(s) selecionada(s)`}
+                    </strong>. Zero PowerShell e zero bloqueio de segurança.
                   </p>
                 </>
               )}

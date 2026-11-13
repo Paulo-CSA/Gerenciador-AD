@@ -318,6 +318,24 @@
   ],
   "logs": [
     {
+      "id": "log_1794578046375",
+      "timestamp": "2026-11-13 10:54:06",
+      "operator": "admin.silva",
+      "action": "Envio de Alerta na Rede",
+      "targetUser": "Todas as máquinas ativas",
+      "details": "[INFO] \"Teste Sem Filtro Servidor\" processada para Todas as máquinas ativas (0 com entrega/canal ativo, 0 pendente(s)).",
+      "type": "info"
+    },
+    {
+      "id": "log_1794578046367",
+      "timestamp": "2026-11-13 10:54:06",
+      "operator": "admin.silva",
+      "action": "Envio de Alerta na Rede",
+      "targetUser": "Estações ativas (sem Windows Server / OU SERVIDORES/WINDOWS)",
+      "details": "[INFO] \"Teste Filtro Servidor\" processada para Estações ativas (sem Windows Server / OU SERVIDORES/WINDOWS) (0 com entrega/canal ativo, 0 pendente(s)).",
+      "type": "info"
+    },
+    {
       "id": "log_1794514569484",
       "timestamp": "2026-11-12 17:16:09",
       "operator": "admin.silva",

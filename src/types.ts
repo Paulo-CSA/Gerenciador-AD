@@ -107,6 +107,7 @@ export interface BroadcastMessage {
   targetMode: 'all' | 'selected';
   targetMachines: string[];
   onlyActiveMachines?: boolean;
+  ignoreWindowsServer?: boolean;
   requireAck: boolean;
   playSound: boolean;
   autoCloseSeconds: number;

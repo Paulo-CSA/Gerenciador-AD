@@ -256,6 +256,8 @@ interface CachedADComputer {
   guid: string;
   canonicalPath: string;
   userAccountControl: number;
+  operatingSystem?: string;
+  ou?: string;
 }
 const globalComputersCache = new Map<string, CachedADComputer>();
 const dnsIpCache = new Map<string, string>();
@@ -2443,7 +2445,9 @@ app.get("/api/ad/computers", async (req, res) => {
             dn: fullDN,
             guid: guid,
             canonicalPath: canonicalPath,
-            userAccountControl: uac
+            userAccountControl: uac,
+            operatingSystem: comp.operatingSystem || comp.operatingsystem || "",
+            ou: ouDisplay
           };
           globalComputersCache.set(cleanName.toLowerCase(), cacheEntry);
           globalComputersCache.set(`${cleanName.toLowerCase()}$`, cacheEntry);
@@ -2873,6 +2877,7 @@ interface ServerBroadcastMessage {
   targetMode: "all" | "selected";
   targetMachines: string[];
   onlyActiveMachines?: boolean;
+  ignoreWindowsServer?: boolean;
   requireAck: boolean;
   playSound: boolean;
   autoCloseSeconds: number;
@@ -3036,7 +3041,13 @@ function getConnectedWorkstationsSnapshot() {
   return list;
 }
 
-function broadcastWsEvent(eventType: string, payload: any, targetMode?: "all" | "selected", targetMachines?: string[]) {
+function broadcastWsEvent(
+  eventType: string,
+  payload: any,
+  targetMode?: "all" | "selected",
+  targetMachines?: string[],
+  excludedHostKeys?: Set<string>
+) {
   const dataStr = JSON.stringify({ type: eventType, payload });
   const targetSet = targetMachines && targetMachines.length > 0
     ? new Set(targetMachines.map((m) => normalizeHostKey(m)))
@@ -3045,10 +3056,16 @@ function broadcastWsEvent(eventType: string, payload: any, targetMode?: "all" | 
   for (const client of connectedWsClients.values()) {
     if (client.ws.readyState !== WebSocket.OPEN) continue;
 
-    if (eventType === "message:broadcast" && targetMode === "selected" && targetSet) {
+    if (eventType === "message:broadcast") {
       const mUpper = normalizeHostKey(client.machineName);
-      if (client.role === "workstation" && mUpper !== "ALL" && !targetSet.has(mUpper)) {
-        continue;
+      if (targetMode === "selected" && targetSet) {
+        if (client.role === "workstation" && mUpper !== "ALL" && !targetSet.has(mUpper)) {
+          continue;
+        }
+      } else if (targetMode === "all" && excludedHostKeys && excludedHostKeys.size > 0) {
+        if (client.role === "workstation" && mUpper && excludedHostKeys.has(mUpper)) {
+          continue;
+        }
       }
     }
 
@@ -3064,6 +3081,9 @@ function broadcastWsEvent(eventType: string, payload: any, targetMode?: "all" | 
     for (const sse of sseClients.values()) {
       const mUpper = normalizeHostKey(sse.machineName);
       if (targetMode === "selected" && targetSet && mUpper && mUpper !== "ALL" && !targetSet.has(mUpper)) {
+        continue;
+      }
+      if (targetMode === "all" && excludedHostKeys && excludedHostKeys.size > 0 && mUpper && excludedHostKeys.has(mUpper)) {
         continue;
       }
       try {
@@ -3133,18 +3153,55 @@ function computeNextRunAt(
   return undefined;
 }
 
-function buildTargetReceipts(
-  targetMode: "all" | "selected",
-  targetMachines: string[],
-  onlyActiveMachines: boolean
-) {
-  cleanupExpiredPollingAgents();
+function isExcludedServerComputer(comp: {
+  operatingSystem?: string;
+  ou?: string;
+  dn?: string;
+  distinguishedName?: string;
+  canonicalPath?: string;
+}): boolean {
+  const os = (comp.operatingSystem || "").toLowerCase();
+  if (os.includes("windows server")) return true;
+
+  const ouNorm = (comp.ou || "").replace(/\\/g, "/").toLowerCase();
+  const canonicalNorm = (comp.canonicalPath || "").replace(/\\/g, "/").toLowerCase();
+  const dnNorm = (comp.dn || comp.distinguishedName || "").toLowerCase();
+
+  return (
+    ouNorm.includes("servidores/windows") ||
+    ouNorm.includes("ou=windows,ou=servidores") ||
+    ouNorm.includes("ou=servidores/ou=windows") ||
+    canonicalNorm.includes("/servidores/windows") ||
+    canonicalNorm.endsWith("servidores/windows") ||
+    /ou=windows\s*,\s*ou=servidores/i.test(dnNorm)
+  );
+}
+
+function getKnownBroadcastComputers() {
   const cfg = readConfig();
-  let knownComputers: Array<{ name: string; ipAddress?: string; status?: string }> = [];
+  const knownComputers: Array<{
+    name: string;
+    ipAddress?: string;
+    status?: string;
+    operatingSystem?: string;
+    ou?: string;
+    dn?: string;
+    canonicalPath?: string;
+  }> = [];
 
   if (cfg.useDemoMode) {
     const db = readDatabase();
-    knownComputers = db.computers || [];
+    for (const c of db.computers || []) {
+      knownComputers.push({
+        name: c.name,
+        ipAddress: c.ipAddress,
+        status: c.status,
+        operatingSystem: c.operatingSystem,
+        ou: c.ou,
+        dn: c.dn || c.distinguishedName,
+        canonicalPath: c.canonicalPath
+      });
+    }
   } else if (globalComputersCache.size > 0) {
     const seen = new Set<string>();
     for (const c of globalComputersCache.values()) {
@@ -3155,11 +3212,27 @@ function buildTargetReceipts(
         knownComputers.push({
           name: c.name,
           ipAddress: dnsIpCache.get(`${c.name}.${cfg.domain}`) || undefined,
-          status: isDisabled ? "Desativado" : "Ativo"
+          status: isDisabled ? "Desativado" : "Ativo",
+          operatingSystem: c.operatingSystem,
+          ou: c.ou,
+          dn: c.dn,
+          canonicalPath: c.canonicalPath
         });
       }
     }
   }
+
+  return knownComputers;
+}
+
+function buildTargetReceipts(
+  targetMode: "all" | "selected",
+  targetMachines: string[],
+  onlyActiveMachines: boolean,
+  ignoreWindowsServer: boolean = true
+) {
+  cleanupExpiredPollingAgents();
+  const knownComputers = getKnownBroadcastComputers();
 
   const onlineWsOrSseMap = new Set<string>();
   const onlinePollingMap = new Set<string>();
@@ -3182,6 +3255,7 @@ function buildTargetReceipts(
 
   const nowTs = getBrazilTimestamp();
   const receipts: ServerBroadcastMessage["receipts"] = [];
+  const excludedHostKeys = new Set<string>();
 
   if (targetMode === "selected") {
     const uniqueTargets = Array.from(new Set(targetMachines.map((m) => m.trim()).filter(Boolean)));
@@ -3197,9 +3271,14 @@ function buildTargetReceipts(
       });
     }
   } else {
-    const filtered = onlyActiveMachines
-      ? knownComputers.filter((k) => k.status !== "Desativado")
-      : knownComputers;
+    const filtered = knownComputers.filter((k) => {
+      if (ignoreWindowsServer && isExcludedServerComputer(k)) {
+        excludedHostKeys.add(normalizeHostKey(k.name));
+        return false;
+      }
+      if (onlyActiveMachines && k.status === "Desativado") return false;
+      return true;
+    });
     for (const comp of filtered) {
       const key = normalizeHostKey(comp.name);
       const isOnlineWs = onlineWsOrSseMap.has(key);
@@ -3212,7 +3291,7 @@ function buildTargetReceipts(
     }
   }
 
-  return { receipts, onlineWsOrSseMap, onlinePollingMap };
+  return { receipts, onlineWsOrSseMap, onlinePollingMap, excludedHostKeys };
 }
 
 function sendMsgExeToWindowsHost(host: string, text: string): Promise<{ ok: boolean; error?: string }> {
@@ -3257,10 +3336,12 @@ async function dispatchBroadcastMessage(
 
   msg.sentAt = nowTs;
   msg.runCount = (msg.runCount || 0) + 1;
-  const { receipts, onlineWsOrSseMap, onlinePollingMap } = buildTargetReceipts(
+  const ignoreServers = msg.ignoreWindowsServer !== undefined ? Boolean(msg.ignoreWindowsServer) : true;
+  const { receipts, onlineWsOrSseMap, onlinePollingMap, excludedHostKeys } = buildTargetReceipts(
     msg.targetMode,
     msg.targetMachines,
-    Boolean(msg.onlyActiveMachines)
+    Boolean(msg.onlyActiveMachines),
+    ignoreServers
   );
   msg.receipts = receipts;
 
@@ -3350,7 +3431,9 @@ async function dispatchBroadcastMessage(
   // Add audit log
   const db = readDatabase();
   const targetLabel = msg.targetMode === "all"
-    ? (msg.onlyActiveMachines ? "Todas as máquinas ativas" : "Todas as máquinas da rede")
+    ? (ignoreServers
+        ? (msg.onlyActiveMachines ? "Estações ativas (sem Windows Server / OU SERVIDORES/WINDOWS)" : "Estações da rede (sem Windows Server / OU SERVIDORES/WINDOWS)")
+        : (msg.onlyActiveMachines ? "Todas as máquinas ativas" : "Todas as máquinas da rede"))
     : `${msg.targetMachines.length} máquina(s): ${msg.targetMachines.slice(0, 5).join(", ")}${msg.targetMachines.length > 5 ? "..." : ""}`;
 
   db.logs.unshift({
@@ -3365,7 +3448,7 @@ async function dispatchBroadcastMessage(
   writeDatabase(db);
 
   // Push real-time WebSocket + SSE popup event
-  broadcastWsEvent("message:broadcast", msg, msg.targetMode, msg.targetMachines);
+  broadcastWsEvent("message:broadcast", msg, msg.targetMode, msg.targetMachines, excludedHostKeys);
   broadcastWsEvent("message:updated", msg);
 
   return { message: msg, deliverySummary };
@@ -3399,6 +3482,8 @@ function generateWindowsMsgBatScript(opts: {
   urgency: string;
   targetMode: "all" | "selected";
   targetMachines: string[];
+  onlyActiveMachines?: boolean;
+  ignoreWindowsServer?: boolean;
 }) {
   const badge =
     opts.urgency === "urgent" ? "ALERTA URGENTE" : opts.urgency === "warning" ? "AVISO DE ATENCAO" : "COMUNICADO DE TI";
@@ -3407,13 +3492,38 @@ function generateWindowsMsgBatScript(opts: {
   const machines = opts.targetMachines.length > 0 ? opts.targetMachines : ["NB-INEMA-12440"];
 
   if (opts.targetMode === "all") {
+    const ignoreServers = opts.ignoreWindowsServer !== false;
+    const onlyActive = opts.onlyActiveMachines !== false;
+    if (opts.targetMachines.length > 0) {
+      const lines = opts.targetMachines.map(
+        (m) => `echo Enviando pop-up nativo Windows para ${m}...\nmsg.exe * /SERVER:${m} /TIME:0 "[${badge}] ${cleanTitle} - ${cleanBody}"`
+      );
+      return `@echo off
+chcp 65001 >nul
+REM ========================================================================
+REM Disparo Nativo via Windows msg.exe (Sem PowerShell / Zero Risco EDR)
+REM Alvo: ${opts.targetMachines.length} estacao(oes) elegivel(is)${onlyActive ? " (somente ativas)" : ""}${ignoreServers ? " | Ignorando Windows Server e OU SERVIDORES/WINDOWS" : ""}
+REM ========================================================================
+${lines.join("\n\n")}
+
+echo.
+echo Concluido.
+pause
+`;
+    }
+
+    const ouFilterPipe = ignoreServers ? ` ^| findstr /I /V "OU=WINDOWS,OU=SERVIDORES"` : "";
     return `@echo off
 chcp 65001 >nul
-REM Envio nativo via msg.exe para todas as maquinas ativas listadas ou via consulta AD
+REM Envio nativo via msg.exe via consulta AD${ignoreServers ? " (ignorando OU SERVIDORES/WINDOWS)" : ""}
 echo Preparando envio via Windows MSG (${badge})...
-for /f "delims=" %%M in ('dsquery computer -limit 0 -o rdn 2^>nul') do (
-    echo Enviando para %%~M...
-    msg.exe * /SERVER:%%~M /TIME:0 "[${badge}] ${cleanTitle} - ${cleanBody}"
+for /f "delims=" %%D in ('dsquery computer -limit 0 2^>nul${ouFilterPipe}') do (
+    for /f "tokens=1 delims=," %%C in ("%%~D") do (
+        set "RAW_CN=%%C"
+        call set "HOST=%%RAW_CN:CN=%%"
+        call echo Enviando para %%HOST%%...
+        call msg.exe * /SERVER:%%HOST%% /TIME:0 "[${badge}] ${cleanTitle} - ${cleanBody}"
+    )
 )
 pause
 `;
@@ -3445,14 +3555,25 @@ function generatePushPowerShellScript(opts: {
   domain: string;
   serverUrl: string;
   messageId?: string;
+  onlyActiveMachines?: boolean;
+  ignoreWindowsServer?: boolean;
 }) {
   const safeTitle = (opts.title || "Comunicado de TI").replace(/"/g, '`"');
   const safeBody = (opts.body || "Mensagem administrativa enviada pelo setor de TI.").replace(/"/g, '`"');
+  const onlyActive = opts.onlyActiveMachines !== false;
+  const ignoreServers = opts.ignoreWindowsServer !== false;
+  const adFilter = onlyActive ? "Enabled -eq $true" : "Name -like '*'";
+  const serverExclusionClause = ignoreServers
+    ? ` | Where-Object {
+    ($_.OperatingSystem -notmatch 'Windows Server') -and
+    ($_.DistinguishedName -notmatch 'OU=WINDOWS,OU=SERVIDORES')
+}`
+    : "";
   const targetBlock =
     opts.targetMode === "all"
-      ? `# Busca automaticamente todas as maquinas ativas no Active Directory (${opts.domain})
+      ? `# Busca automaticamente as estacoes no Active Directory (${opts.domain})${ignoreServers ? " ignorando Windows Server e OU SERVIDORES/WINDOWS" : ""}
 Import-Module ActiveDirectory -ErrorAction SilentlyContinue
-$Targets = (Get-ADComputer -Filter {Enabled -eq $true} -Properties Name).Name
+$Targets = (Get-ADComputer -Filter {${adFilter}} -Properties Name, OperatingSystem, DistinguishedName${serverExclusionClause}).Name
 if (-not $Targets) {
     Write-Warning "Modulo ActiveDirectory indisponivel. Informe os hostnames manualmente."
     $Targets = @()
@@ -3605,6 +3726,7 @@ app.post("/api/messages/send", async (req, res) => {
       targetMode = "all",
       targetMachines = [],
       onlyActiveMachines = true,
+      ignoreWindowsServer = true,
       requireAck = true,
       playSound = true,
       autoCloseSeconds = 0,
@@ -3641,6 +3763,7 @@ app.post("/api/messages/send", async (req, res) => {
       targetMode,
       targetMachines: targetMode === "all" ? [] : targetMachines,
       onlyActiveMachines: Boolean(onlyActiveMachines),
+      ignoreWindowsServer: Boolean(ignoreWindowsServer),
       requireAck: Boolean(requireAck),
       playSound: Boolean(playSound),
       autoCloseSeconds: Number(autoCloseSeconds) || 0,
@@ -3925,11 +4048,15 @@ app.get("/api/messages/pending", (req, res) => {
   }
 
   const messages = readMessages();
+  const knownComputers = getKnownBroadcastComputers();
   const recentSent = messages.filter((m) => {
     if (m.status !== "enviada" && m.runCount === 0) return false;
     if (m.targetMode === "selected" && machineKey) {
       const targetMatch = m.targetMachines.some((t) => normalizeHostKey(t) === machineKey);
       if (!targetMatch) return false;
+    } else if (m.targetMode === "all" && machineKey && m.ignoreWindowsServer !== false) {
+      const matchedComp = knownComputers.find((c) => normalizeHostKey(c.name) === machineKey);
+      if (matchedComp && isExcludedServerComputer(matchedComp)) return false;
     }
     if (machineKey) {
       const acked = m.receipts.some((r) => normalizeHostKey(r.machineName) === machineKey && r.status === "confirmada");
@@ -3977,6 +4104,8 @@ app.get("/api/messages/powershell-script", (req, res) => {
   let body = String(req.query.body || "Favor salvar seus documentos. Reinicializacao programada em 10 minutos.");
   let urgency = String(req.query.urgency || "warning");
   let targetMode: "all" | "selected" = req.query.targetMode === "selected" ? "selected" : "all";
+  let onlyActiveMachines = req.query.onlyActiveMachines !== "false";
+  let ignoreWindowsServer = req.query.ignoreWindowsServer !== "false";
   let targetMachines = req.query.targets
     ? String(req.query.targets).split(",").map((s) => s.trim()).filter(Boolean)
     : [];
@@ -3989,8 +4118,16 @@ app.get("/api/messages/powershell-script", (req, res) => {
       urgency = found.urgency;
       targetMode = found.targetMode;
       targetMachines = found.targetMachines || [];
+      if (found.onlyActiveMachines !== undefined) onlyActiveMachines = Boolean(found.onlyActiveMachines);
+      if (found.ignoreWindowsServer !== undefined) ignoreWindowsServer = Boolean(found.ignoreWindowsServer);
     }
   }
+
+  // If targetMode is "all" and we have known computers in memory/DB, resolve exact eligible workstations for .bat
+  const resolvedBatTargets =
+    targetMode === "all"
+      ? buildTargetReceipts("all", [], onlyActiveMachines, ignoreWindowsServer).receipts.map((r) => r.machineName)
+      : targetMachines;
 
   const protocol = req.headers["x-forwarded-proto"] || req.protocol || "http";
   const host = req.headers.host || `localhost:${PORT}`;
@@ -4000,7 +4137,15 @@ app.get("/api/messages/powershell-script", (req, res) => {
   let fileName = "Enviar-Mensagem-Windows.bat";
 
   if (type === "bat") {
-    scriptContent = generateWindowsMsgBatScript({ title, body, urgency, targetMode, targetMachines });
+    scriptContent = generateWindowsMsgBatScript({
+      title,
+      body,
+      urgency,
+      targetMode,
+      targetMachines: resolvedBatTargets,
+      onlyActiveMachines,
+      ignoreWindowsServer
+    });
     fileName = "Enviar-Mensagem-Windows.bat";
   } else if (type === "gateway") {
     scriptContent = generateMsgGatewayScript(serverUrl);
@@ -4014,7 +4159,9 @@ app.get("/api/messages/powershell-script", (req, res) => {
       targetMachines,
       domain: cfg.domain || "inema.intranet",
       serverUrl,
-      messageId
+      messageId,
+      onlyActiveMachines,
+      ignoreWindowsServer
     });
     fileName = "Enviar-Alerta-MSG.ps1";
   }
