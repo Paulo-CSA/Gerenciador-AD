@@ -110,7 +110,7 @@ export interface BroadcastMessage {
   requireAck: boolean;
   playSound: boolean;
   autoCloseSeconds: number;
-  deliveryMethod: 'realtime_agent' | 'powershell_msg' | 'hybrid';
+  deliveryMethod: 'msg_exe' | 'winrm';
   scheduleType: BroadcastScheduleType;
   scheduledAt?: string;
   recurrenceTime?: string;

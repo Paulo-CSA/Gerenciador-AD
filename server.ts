@@ -256,9 +256,33 @@ interface CachedADComputer {
   guid: string;
   canonicalPath: string;
   userAccountControl: number;
+  ipAddress?: string;
+  operatingSystem?: string;
 }
 const globalComputersCache = new Map<string, CachedADComputer>();
 const dnsIpCache = new Map<string, string>();
+
+function cleanValidIp(ip?: string): string | undefined {
+  if (!ip) return undefined;
+  let s = String(ip).trim();
+  if (s.startsWith("::ffff:")) s = s.slice(7);
+  if (
+    !s ||
+    s === "::1" ||
+    s === "127.0.0.1" ||
+    s.toLowerCase().includes("dhcp") ||
+    s.toLowerCase().includes("dinâmico") ||
+    s.toLowerCase().includes("dinamico")
+  ) {
+    return undefined;
+  }
+  if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(s)) return s;
+  return undefined;
+}
+
+function isWindowsServerOS(os?: string): boolean {
+  return String(os || "").toLowerCase().includes("server");
+}
 
 function asyncLookupHost(fqdn: string) {
   if (!fqdn || dnsIpCache.has(fqdn)) return;
@@ -2437,20 +2461,6 @@ app.get("/api/ad/computers", async (req, res) => {
 
           const ouDisplay = extractOU(fullDN, "Computadores");
 
-          // Update memory cache for this computer so any future operation resolves instantly
-          const cacheEntry: CachedADComputer = {
-            name: cleanName,
-            dn: fullDN,
-            guid: guid,
-            canonicalPath: canonicalPath,
-            userAccountControl: uac
-          };
-          globalComputersCache.set(cleanName.toLowerCase(), cacheEntry);
-          globalComputersCache.set(`${cleanName.toLowerCase()}$`, cacheEntry);
-          if (guid) globalComputersCache.set(guid.toLowerCase(), cacheEntry);
-          if (fullDN) globalComputersCache.set(fullDN.toLowerCase(), cacheEntry);
-          if (canonicalPath) globalComputersCache.set(canonicalPath.toLowerCase(), cacheEntry);
-
           const fqdn = comp.dNSHostName || comp.dnshostname || `${cleanName}.${cfg.domain}`;
           asyncLookupHost(fqdn);
 
@@ -2474,6 +2484,24 @@ app.get("/api/ad/computers", async (req, res) => {
               ipAddress = "Dinâmico (DHCP)";
             }
           }
+
+          const osName = comp.operatingSystem || comp.operatingsystem || "Windows Workstation";
+
+          // Update memory cache for this computer so any future operation resolves instantly
+          const cacheEntry: CachedADComputer = {
+            name: cleanName,
+            dn: fullDN,
+            guid: guid,
+            canonicalPath: canonicalPath,
+            userAccountControl: uac,
+            ipAddress: cleanValidIp(ipAddress),
+            operatingSystem: osName
+          };
+          globalComputersCache.set(cleanName.toLowerCase(), cacheEntry);
+          globalComputersCache.set(`${cleanName.toLowerCase()}$`, cacheEntry);
+          if (guid) globalComputersCache.set(guid.toLowerCase(), cacheEntry);
+          if (fullDN) globalComputersCache.set(fullDN.toLowerCase(), cacheEntry);
+          if (canonicalPath) globalComputersCache.set(canonicalPath.toLowerCase(), cacheEntry);
 
           // 2. Last logged / assigned user extraction
           let lastUser = "";
@@ -2876,7 +2904,9 @@ interface ServerBroadcastMessage {
   requireAck: boolean;
   playSound: boolean;
   autoCloseSeconds: number;
-  deliveryMethod: "realtime_agent" | "powershell_msg" | "hybrid";
+  deliveryMethod: "msg_exe" | "winrm";
+  targetIpMap?: Record<string, string>;
+  fallbackComputers?: Array<{ name: string; ipAddress?: string; operatingSystem?: string; status?: string }>;
   scheduleType: "immediate" | "once" | "daily" | "weekly" | "monthly";
   scheduledAt?: string;
   recurrenceTime?: string;
@@ -3036,6 +3066,19 @@ function getConnectedWorkstationsSnapshot() {
   return list;
 }
 
+function isKnownWindowsServerMachine(machineName?: string): boolean {
+  if (!machineName) return false;
+  const keyLower = machineName.trim().split(".")[0].toLowerCase();
+  const cached = globalComputersCache.get(keyLower);
+  if (cached && isWindowsServerOS(cached.operatingSystem)) return true;
+  const db = readDatabase();
+  const dbComp = (db.computers || []).find(
+    (c: any) => String(c.name || "").trim().split(".")[0].toLowerCase() === keyLower
+  );
+  if (dbComp && isWindowsServerOS(dbComp.operatingSystem)) return true;
+  return false;
+}
+
 function broadcastWsEvent(eventType: string, payload: any, targetMode?: "all" | "selected", targetMachines?: string[]) {
   const dataStr = JSON.stringify({ type: eventType, payload });
   const targetSet = targetMachines && targetMachines.length > 0
@@ -3045,10 +3088,16 @@ function broadcastWsEvent(eventType: string, payload: any, targetMode?: "all" | 
   for (const client of connectedWsClients.values()) {
     if (client.ws.readyState !== WebSocket.OPEN) continue;
 
-    if (eventType === "message:broadcast" && targetMode === "selected" && targetSet) {
+    if (eventType === "message:broadcast") {
       const mUpper = normalizeHostKey(client.machineName);
-      if (client.role === "workstation" && mUpper !== "ALL" && !targetSet.has(mUpper)) {
-        continue;
+      if (targetMode === "selected" && targetSet) {
+        if (client.role === "workstation" && mUpper !== "ALL" && !targetSet.has(mUpper)) {
+          continue;
+        }
+      } else if (targetMode === "all" && client.role === "workstation") {
+        if (isKnownWindowsServerMachine(client.machineName)) {
+          continue;
+        }
       }
     }
 
@@ -3064,6 +3113,9 @@ function broadcastWsEvent(eventType: string, payload: any, targetMode?: "all" | 
     for (const sse of sseClients.values()) {
       const mUpper = normalizeHostKey(sse.machineName);
       if (targetMode === "selected" && targetSet && mUpper && mUpper !== "ALL" && !targetSet.has(mUpper)) {
+        continue;
+      }
+      if (targetMode === "all" && isKnownWindowsServerMachine(sse.machineName)) {
         continue;
       }
       try {
@@ -3136,15 +3188,22 @@ function computeNextRunAt(
 function buildTargetReceipts(
   targetMode: "all" | "selected",
   targetMachines: string[],
-  onlyActiveMachines: boolean
+  onlyActiveMachines: boolean,
+  targetIpMap?: Record<string, string>,
+  fallbackComputers?: Array<{ name: string; ipAddress?: string; operatingSystem?: string; status?: string }>
 ) {
   cleanupExpiredPollingAgents();
   const cfg = readConfig();
-  let knownComputers: Array<{ name: string; ipAddress?: string; status?: string }> = [];
+  let knownComputers: Array<{ name: string; ipAddress?: string; operatingSystem?: string; status?: string }> = [];
 
   if (cfg.useDemoMode) {
     const db = readDatabase();
-    knownComputers = db.computers || [];
+    knownComputers = (db.computers || []).map((c: any) => ({
+      name: c.name,
+      ipAddress: cleanValidIp(c.ipAddress),
+      operatingSystem: c.operatingSystem,
+      status: c.status
+    }));
   } else if (globalComputersCache.size > 0) {
     const seen = new Set<string>();
     for (const c of globalComputersCache.values()) {
@@ -3154,19 +3213,31 @@ function buildTargetReceipts(
         const isDisabled = (c.userAccountControl & 0x0002) !== 0;
         knownComputers.push({
           name: c.name,
-          ipAddress: dnsIpCache.get(`${c.name}.${cfg.domain}`) || undefined,
+          ipAddress: cleanValidIp(c.ipAddress) || cleanValidIp(dnsIpCache.get(`${c.name}.${cfg.domain}`)),
+          operatingSystem: c.operatingSystem,
           status: isDisabled ? "Desativado" : "Ativo"
         });
       }
     }
+  } else if (Array.isArray(fallbackComputers) && fallbackComputers.length > 0) {
+    knownComputers = fallbackComputers.map((c) => ({
+      name: c.name,
+      ipAddress: cleanValidIp(c.ipAddress),
+      operatingSystem: c.operatingSystem,
+      status: c.status
+    }));
   }
 
   const onlineWsOrSseMap = new Set<string>();
   const onlinePollingMap = new Set<string>();
+  const liveIpByHost = new Map<string, string>();
 
   for (const client of connectedWsClients.values()) {
     if (client.machineName && client.role === "workstation") {
-      onlineWsOrSseMap.add(normalizeHostKey(client.machineName));
+      const key = normalizeHostKey(client.machineName);
+      onlineWsOrSseMap.add(key);
+      const validIp = cleanValidIp(client.ip);
+      if (validIp) liveIpByHost.set(key, validIp);
     }
   }
   for (const sse of sseClients.values()) {
@@ -3176,9 +3247,36 @@ function buildTargetReceipts(
   }
   for (const agent of connectedPollingAgents.values()) {
     if (agent.machineName) {
-      onlinePollingMap.add(normalizeHostKey(agent.machineName));
+      const key = normalizeHostKey(agent.machineName);
+      onlinePollingMap.add(key);
+      const validIp = cleanValidIp(agent.ip);
+      if (validIp && !liveIpByHost.has(key)) liveIpByHost.set(key, validIp);
     }
   }
+
+  // Normalize custom IP map keys by host key
+  const customIpByHost = new Map<string, string>();
+  if (targetIpMap && typeof targetIpMap === "object") {
+    for (const [k, v] of Object.entries(targetIpMap)) {
+      const validIp = cleanValidIp(v);
+      if (validIp) {
+        customIpByHost.set(normalizeHostKey(k), validIp);
+        customIpByHost.set(k.trim().toUpperCase(), validIp);
+      }
+    }
+  }
+
+  const resolveIp = (machineName: string, knownIp?: string): string | undefined => {
+    const key = normalizeHostKey(machineName);
+    return (
+      customIpByHost.get(key) ||
+      customIpByHost.get(machineName.trim().toUpperCase()) ||
+      cleanValidIp(machineName) ||
+      cleanValidIp(knownIp) ||
+      liveIpByHost.get(key) ||
+      cleanValidIp(dnsIpCache.get(`${machineName}.${cfg.domain}`))
+    );
+  };
 
   const nowTs = getBrazilTimestamp();
   const receipts: ServerBroadcastMessage["receipts"] = [];
@@ -3191,21 +3289,24 @@ function buildTargetReceipts(
       const isOnlineWs = onlineWsOrSseMap.has(key);
       receipts.push({
         machineName: found ? found.name : name,
-        ipAddress: found?.ipAddress,
+        ipAddress: resolveIp(found ? found.name : name, found?.ipAddress),
         status: isOnlineWs ? "entregue" : "pendente",
         deliveredAt: isOnlineWs ? nowTs : undefined
       });
     }
   } else {
-    const filtered = onlyActiveMachines
-      ? knownComputers.filter((k) => k.status !== "Desativado")
-      : knownComputers;
+    // Send to All: ignore disabled machines (when checkbox checked) AND NEVER send to Windows Server OS
+    const filtered = knownComputers.filter((k) => {
+      if (onlyActiveMachines && k.status === "Desativado") return false;
+      if (isWindowsServerOS(k.operatingSystem)) return false;
+      return true;
+    });
     for (const comp of filtered) {
       const key = normalizeHostKey(comp.name);
       const isOnlineWs = onlineWsOrSseMap.has(key);
       receipts.push({
         machineName: comp.name,
-        ipAddress: comp.ipAddress,
+        ipAddress: resolveIp(comp.name, comp.ipAddress),
         status: isOnlineWs ? "entregue" : "pendente",
         deliveredAt: isOnlineWs ? nowTs : undefined
       });
@@ -3215,16 +3316,35 @@ function buildTargetReceipts(
   return { receipts, onlineWsOrSseMap, onlinePollingMap };
 }
 
-function sendMsgExeToWindowsHost(host: string, text: string): Promise<{ ok: boolean; error?: string }> {
+function sendMsgExeToWindowsHost(dest: string, text: string): Promise<{ ok: boolean; error?: string }> {
   return new Promise((resolve) => {
     if (process.platform !== "win32") return resolve({ ok: false, error: "Servidor em Linux" });
     execFile(
       "msg.exe",
-      ["*", `/SERVER:${host}`, "/TIME:0", text],
+      ["*", `/SERVER:${dest}`, "/TIME:0", text],
       { timeout: 4500, windowsHide: true },
       (err, stdout, stderr) => {
         if (!err) return resolve({ ok: true });
         const detail = (stderr || stdout || err.message || "Falha no msg.exe").trim();
+        resolve({ ok: false, error: detail });
+      }
+    );
+  });
+}
+
+function sendWinRmToWindowsHost(dest: string, text: string): Promise<{ ok: boolean; error?: string }> {
+  return new Promise((resolve) => {
+    if (process.platform !== "win32") return resolve({ ok: false, error: "Servidor em Linux" });
+    const safeDest = dest.replace(/'/g, "''");
+    const safeText = text.replace(/'/g, "''");
+    const psCmd = `Invoke-Command -ComputerName '${safeDest}' -ScriptBlock { param($m) msg.exe * /TIME:0 $m } -ArgumentList '${safeText}' -ErrorAction Stop`;
+    execFile(
+      "powershell.exe",
+      ["-NoProfile", "-Command", psCmd],
+      { timeout: 8000, windowsHide: true },
+      (err, stdout, stderr) => {
+        if (!err) return resolve({ ok: true });
+        const detail = (stderr || stdout || err.message || "Falha no WinRM").trim();
         resolve({ ok: false, error: detail });
       }
     );
@@ -3260,16 +3380,20 @@ async function dispatchBroadcastMessage(
   const { receipts, onlineWsOrSseMap, onlinePollingMap } = buildTargetReceipts(
     msg.targetMode,
     msg.targetMachines,
-    Boolean(msg.onlyActiveMachines)
+    Boolean(msg.onlyActiveMachines),
+    msg.targetIpMap,
+    msg.fallbackComputers
   );
   msg.receipts = receipts;
 
-  // Attempt native Windows msg.exe push automatically when backend runs on Windows
+  const normalizedMethod: "msg_exe" | "winrm" = msg.deliveryMethod === "winrm" ? "winrm" : "msg_exe";
+
+  // Attempt native Windows delivery (WinRM or msg.exe) automatically when backend runs on Windows
   let nativePushAttempted = false;
   let nativePushSucceeded = 0;
   let nativePushFailed = 0;
 
-  if (process.platform === "win32" && msg.deliveryMethod !== "realtime_agent" && msg.receipts.length > 0) {
+  if (process.platform === "win32" && msg.receipts.length > 0) {
     nativePushAttempted = true;
     const badge =
       msg.urgency === "urgent" ? "ALERTA URGENTE" : msg.urgency === "warning" ? "AVISO DE ATENCAO" : "COMUNICADO DE TI";
@@ -3278,8 +3402,12 @@ async function dispatchBroadcastMessage(
 
     await Promise.all(
       targetsToPush.map(async (rec) => {
-        const targetHost = rec.ipAddress || rec.machineName;
-        const result = await sendMsgExeToWindowsHost(targetHost, formattedMsg);
+        // Always prioritize IP address instead of hostname to bypass DNS issues
+        const targetDest = cleanValidIp(rec.ipAddress) || rec.machineName;
+        const result =
+          normalizedMethod === "winrm"
+            ? await sendWinRmToWindowsHost(targetDest, formattedMsg)
+            : await sendMsgExeToWindowsHost(targetDest, formattedMsg);
         if (result.ok) {
           nativePushSucceeded++;
           if (rec.status === "pendente") {
@@ -3295,8 +3423,8 @@ async function dispatchBroadcastMessage(
         }
       })
     );
-  } else if (process.platform !== "win32" && msg.deliveryMethod !== "realtime_agent") {
-    // Queue for any connected Windows msg.exe Gateway inside the domain
+  } else if (process.platform !== "win32") {
+    // Queue for any connected Windows msg.exe / WinRM Gateway inside the domain
     pendingGatewayMessageIds.add(msg.id);
   }
 
@@ -3327,11 +3455,11 @@ async function dispatchBroadcastMessage(
       r.status === "confirmada" ||
       onlineWsOrSseMap.has(key) ||
       onlinePollingMap.has(key) ||
-      (gatewayOnline && msg.deliveryMethod !== "realtime_agent");
+      gatewayOnline;
     if (hasLiveChannel) {
       onlineAgentCount++;
     } else {
-      offlineMachines.push(r.machineName);
+      offlineMachines.push(r.ipAddress ? `${r.machineName} (${r.ipAddress})` : r.machineName);
     }
   }
 
@@ -3350,7 +3478,7 @@ async function dispatchBroadcastMessage(
   // Add audit log
   const db = readDatabase();
   const targetLabel = msg.targetMode === "all"
-    ? (msg.onlyActiveMachines ? "Todas as máquinas ativas" : "Todas as máquinas da rede")
+    ? (msg.onlyActiveMachines ? "Todas as estações ativas (excl. Windows Server)" : "Todas as estações (excl. Windows Server)")
     : `${msg.targetMachines.length} máquina(s): ${msg.targetMachines.slice(0, 5).join(", ")}${msg.targetMachines.length > 5 ? "..." : ""}`;
 
   db.logs.unshift({
@@ -3359,7 +3487,7 @@ async function dispatchBroadcastMessage(
     operator: triggeredByScheduler ? "Agendador Automático" : (msg.sender || "admin.silva"),
     action: triggeredByScheduler ? "Disparo Automático de Mensagem" : "Envio de Alerta na Rede",
     targetUser: targetLabel,
-    details: `[${msg.urgency.toUpperCase()}] "${msg.title}" processada para ${targetLabel} (${onlineAgentCount} com entrega/canal ativo, ${deliverySummary.pendingAgentCount} pendente(s)).`,
+    details: `[${msg.urgency.toUpperCase()} | ${normalizedMethod.toUpperCase()}] "${msg.title}" processada para ${targetLabel} (${onlineAgentCount} com entrega/canal ativo, ${deliverySummary.pendingAgentCount} pendente(s)).`,
     type: msg.urgency === "urgent" ? "danger" : msg.urgency === "warning" ? "warning" : "info"
   });
   writeDatabase(db);
@@ -3398,40 +3526,38 @@ function generateWindowsMsgBatScript(opts: {
   body: string;
   urgency: string;
   targetMode: "all" | "selected";
-  targetMachines: string[];
+  resolvedTargets: Array<{ machineName: string; ipAddress?: string }>;
 }) {
   const badge =
     opts.urgency === "urgent" ? "ALERTA URGENTE" : opts.urgency === "warning" ? "AVISO DE ATENCAO" : "COMUNICADO DE TI";
   const cleanTitle = (opts.title || "Comunicado de TI").replace(/["%\r\n]/g, " ").trim();
   const cleanBody = (opts.body || "Mensagem administrativa enviada pelo setor de TI.").replace(/["%]/g, " ").replace(/\r?\n/g, " ").trim();
-  const machines = opts.targetMachines.length > 0 ? opts.targetMachines : ["NB-INEMA-12440"];
 
-  if (opts.targetMode === "all") {
+  if (opts.resolvedTargets.length > 0) {
+    const lines = opts.resolvedTargets.map((t) => {
+      const dest = t.ipAddress || t.machineName;
+      const ipNote = t.ipAddress ? `IP: ${t.ipAddress}` : `Sem IP cadastrado - usando nome ${t.machineName}`;
+      return `echo Enviando pop-up nativo Windows para ${t.machineName} (${ipNote})...\nmsg.exe * /SERVER:${dest} /TIME:0 "[${badge}] ${cleanTitle} - ${cleanBody}"`;
+    });
+
     return `@echo off
 chcp 65001 >nul
-REM Envio nativo via msg.exe para todas as maquinas ativas listadas ou via consulta AD
-echo Preparando envio via Windows MSG (${badge})...
-for /f "delims=" %%M in ('dsquery computer -limit 0 -o rdn 2^>nul') do (
-    echo Enviando para %%~M...
-    msg.exe * /SERVER:%%~M /TIME:0 "[${badge}] ${cleanTitle} - ${cleanBody}"
-)
-pause
-`;
-  }
-
-  const lines = machines.map(
-    (m) => `echo Enviando pop-up nativo Windows para ${m}...\nmsg.exe * /SERVER:${m} /TIME:0 "[${badge}] ${cleanTitle} - ${cleanBody}"`
-  );
-
-  return `@echo off
-chcp 65001 >nul
 REM ========================================================================
-REM Disparo Nativo via Windows msg.exe (Sem PowerShell / Zero Risco EDR)
+REM Disparo Nativo via Windows msg.exe por Endereco IP (Ignora Windows Server em Envio Global)
 REM ========================================================================
 ${lines.join("\n\n")}
 
 echo.
 echo Concluido.
+pause
+`;
+  }
+
+  return `@echo off
+chcp 65001 >nul
+REM Nenhum equipamento com IP resolvido no cache no momento.
+REM Exemplo de disparo direto por IP:
+echo Informe o IP ou carregue os computadores do AD antes de baixar.
 pause
 `;
 }
@@ -3440,37 +3566,72 @@ function generatePushPowerShellScript(opts: {
   title: string;
   body: string;
   urgency: string;
+  deliveryMethod: "msg_exe" | "winrm";
   targetMode: "all" | "selected";
-  targetMachines: string[];
+  resolvedTargets: Array<{ machineName: string; ipAddress?: string }>;
   domain: string;
   serverUrl: string;
   messageId?: string;
 }) {
   const safeTitle = (opts.title || "Comunicado de TI").replace(/"/g, '`"');
   const safeBody = (opts.body || "Mensagem administrativa enviada pelo setor de TI.").replace(/"/g, '`"');
-  const targetBlock =
-    opts.targetMode === "all"
-      ? `# Busca automaticamente todas as maquinas ativas no Active Directory (${opts.domain})
-Import-Module ActiveDirectory -ErrorAction SilentlyContinue
-$Targets = (Get-ADComputer -Filter {Enabled -eq $true} -Properties Name).Name
-if (-not $Targets) {
-    Write-Warning "Modulo ActiveDirectory indisponivel. Informe os hostnames manualmente."
-    $Targets = @()
-}`
-      : `# Lista de equipamentos especificos selecionados no painel
+
+  let targetBlock = "";
+  if (opts.resolvedTargets.length > 0) {
+    const items = opts.resolvedTargets.map((t) => {
+      const dest = t.ipAddress || t.machineName;
+      return `    @{ Name = "${t.machineName}"; Dest = "${dest}" }`;
+    });
+    targetBlock = `# Destinos priorizando IP (Windows Server ja excluido quando em envio global)
 $Targets = @(
-${(opts.targetMachines.length > 0 ? opts.targetMachines : ["NB-INEMA-12440"]).map((m) => `    "${m}"`).join(",\n")}
+${items.join(",\n")}
 )`;
+  } else if (opts.targetMode === "all") {
+    targetBlock = `# Consulta estacoes ativas no AD (${opts.domain}) ignorando Windows Server e priorizando IPv4
+Import-Module ActiveDirectory -ErrorAction SilentlyContinue
+$Targets = Get-ADComputer -Filter { Enabled -eq $true -and OperatingSystem -notlike "*Server*" } -Properties IPv4Address, OperatingSystem | ForEach-Object {
+    @{ Name = $_.Name; Dest = $(if ($_.IPv4Address) { $_.IPv4Address } else { $_.Name }) }
+}`;
+  } else {
+    targetBlock = `$Targets = @()`;
+  }
 
   const urgencyLabel =
     opts.urgency === "urgent" ? "ALERTA URGENTE" : opts.urgency === "warning" ? "AVISO DE ATENCAO" : "COMUNICADO DE TI";
 
+  const dispatchBlock =
+    opts.deliveryMethod === "winrm"
+      ? `    try {
+        Invoke-Command -ComputerName $Dest -ScriptBlock { param($m) msg.exe * /TIME:0 $m } -ArgumentList $MsgTexto -ErrorAction Stop
+        Write-Host " [OK - WinRM por IP]" -ForegroundColor Green
+        if ($MessageId -and $ServerApiUrl) {
+            try {
+                $bodyJson = @{ machineName = $MachineName } | ConvertTo-Json
+                Invoke-RestMethod -Uri "$ServerApiUrl/api/messages/$MessageId/delivered" -Method Post -ContentType "application/json" -Body $bodyJson -ErrorAction SilentlyContinue | Out-Null
+            } catch {}
+        }
+    } catch {
+        Write-Host " [Falha WinRM ($Dest): $($_.Exception.Message)]" -ForegroundColor Red
+    }`
+      : `    $output = & msg.exe * /SERVER:$Dest /TIME:0 "$MsgTexto" 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host " [OK - Exibido na tela via msg.exe]" -ForegroundColor Green
+        if ($MessageId -and $ServerApiUrl) {
+            try {
+                $bodyJson = @{ machineName = $MachineName } | ConvertTo-Json
+                Invoke-RestMethod -Uri "$ServerApiUrl/api/messages/$MessageId/delivered" -Method Post -ContentType "application/json" -Body $bodyJson -ErrorAction SilentlyContinue | Out-Null
+            } catch {}
+        }
+    } else {
+        Write-Host " [Falha msg.exe ($Dest): $output]" -ForegroundColor Red
+    }`;
+
   return `<#
 .SYNOPSIS
-    Disparo Nativo de Mensagens via Windows msg.exe para estacoes do Active Directory
+    Disparo Nativo de Mensagens via ${opts.deliveryMethod === "winrm" ? "WinRM" : "Windows msg.exe"} por Endereco IP
 .DESCRIPTION
-    Arquivo local nativo que utiliza exclusivamente o utilitario C:\\Windows\\System32\\msg.exe
-    do Windows para exibir a janela de aviso diretamente na tela do usuario logado.
+    Arquivo local nativo que prioriza o endereco IP para contornar falhas de DNS
+    e envia o alerta para a sessao ativa do usuario.
 #>
 
 [CmdletBinding()]
@@ -3483,27 +3644,14 @@ param(
 
 ${targetBlock}
 
-Write-Host "Disparando alerta nativo Windows (msg.exe) para $($Targets.Count) estacao(oes)..." -ForegroundColor Cyan
+Write-Host "Disparando alerta (${opts.deliveryMethod === "winrm" ? "WinRM" : "msg.exe"}) para $($Targets.Count) estacao(oes) via IP..." -ForegroundColor Cyan
 $MsgTexto = "[${urgencyLabel}] $Titulo\`r\`n\`r\`n$Mensagem"
 
-foreach ($Machine in $Targets) {
-    Write-Host " -> $Machine..." -NoNewline
-    if (Test-Connection -ComputerName $Machine -Count 1 -Quiet -ErrorAction SilentlyContinue) {
-        $output = & msg.exe * /SERVER:$Machine /TIME:0 "$MsgTexto" 2>&1
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host " [OK - Exibido na tela via msg.exe]" -ForegroundColor Green
-            if ($MessageId -and $ServerApiUrl) {
-                try {
-                    $bodyJson = @{ machineName = $Machine } | ConvertTo-Json
-                    Invoke-RestMethod -Uri "$ServerApiUrl/api/messages/$MessageId/delivered" -Method Post -ContentType "application/json" -Body $bodyJson -ErrorAction SilentlyContinue | Out-Null
-                } catch {}
-            }
-        } else {
-            Write-Host " [Falha msg.exe: $output]" -ForegroundColor Red
-        }
-    } else {
-        Write-Host " [Offline / Sem resposta ICMP]" -ForegroundColor Yellow
-    }
+foreach ($Item in $Targets) {
+    $MachineName = $Item.Name
+    $Dest = $Item.Dest
+    Write-Host " -> $MachineName ($Dest)..." -NoNewline
+${dispatchBlock}
 }
 `;
 }
@@ -3511,11 +3659,11 @@ foreach ($Machine in $Targets) {
 function generateMsgGatewayScript(serverUrl: string) {
   return `<#
 .SYNOPSIS
-    Despachante Central Windows msg.exe (DirectoryAdmin MSG Gateway)
+    Despachante Central Windows msg.exe / WinRM por IP (DirectoryAdmin MSG Gateway)
 .DESCRIPTION
     Execute este script em UM servidor Windows ou PC de TI dentro da rede interna.
-    Ele NAO precisa ser instalado nas estacoes dos usuarios e utiliza apenas
-    leitura da fila JSON no painel e disparo nativo via C:\\Windows\\System32\\msg.exe.
+    Ele NAO precisa ser instalado nas estacoes dos usuarios e prioriza o envio
+    diretamente para o endereco IP (contornando falhas de DNS).
 #>
 
 param(
@@ -3529,7 +3677,7 @@ $GatewayHost = $env:COMPUTERNAME
 $GatewayUser = $env:USERNAME
 
 Write-Host "=================================================================" -ForegroundColor Cyan
-Write-Host " DirectoryAdmin - Despachante Nativo Windows msg.exe" -ForegroundColor Cyan
+Write-Host " DirectoryAdmin - Despachante Nativo Windows (msg.exe & WinRM por IP)" -ForegroundColor Cyan
 Write-Host " Host: $GatewayHost ($GatewayUser) | Painel: $ServerUrl" -ForegroundColor Cyan
 Write-Host "=================================================================" -ForegroundColor Cyan
 
@@ -3545,27 +3693,32 @@ while ($true) {
                 elseif ($job.urgency -eq "urgent") { $badge = "ALERTA URGENTE" }
 
                 $msgText = "[$badge] $($job.title)\`r\`n\`r\`n$($job.body)"
+                $method = if ($job.deliveryMethod -eq "winrm") { "winrm" } else { "msg_exe" }
                 $results = @()
 
-                Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Processando alerta '$($job.title)' para $($job.targets.Count) maquina(s)..." -ForegroundColor Yellow
+                Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Processando '$($job.title)' [$method] para $($job.targets.Count) estacao(oes)..." -ForegroundColor Yellow
 
                 foreach ($target in $job.targets) {
-                    $dest = if ($target.ipAddress) { $target.ipAddress } else { $target.machineName }
-                    $out = & msg.exe * /SERVER:$dest /TIME:0 "$msgText" 2>&1
-                    if ($LASTEXITCODE -eq 0) {
-                        Write-Host "   OK -> $($target.machineName)" -ForegroundColor Green
-                        $results += @{ machineName = $target.machineName; success = $true; errorDetail = "" }
-                    } else {
-                        # Tenta pelo nome NetBIOS caso o IP tenha falhado
-                        if ($dest -ne $target.machineName) {
-                            $out = & msg.exe * /SERVER:$($target.machineName) /TIME:0 "$msgText" 2>&1
+                    $dest = if ($target.ipAddress -and $target.ipAddress.Trim() -ne "") { $target.ipAddress.Trim() } else { $target.machineName }
+
+                    if ($method -eq "winrm") {
+                        try {
+                            Invoke-Command -ComputerName $dest -ScriptBlock { param($m) msg.exe * /TIME:0 $m } -ArgumentList $msgText -ErrorAction Stop
+                            Write-Host "   OK [WinRM] -> $($target.machineName) ($dest)" -ForegroundColor Green
+                            $results += @{ machineName = $target.machineName; success = $true; errorDetail = "" }
+                        } catch {
+                            $errMsg = $_.Exception.Message
+                            Write-Host "   FALHA [WinRM] -> $($target.machineName) ($dest): $errMsg" -ForegroundColor Red
+                            $results += @{ machineName = $target.machineName; success = $false; errorDetail = $errMsg }
                         }
+                    } else {
+                        $out = & msg.exe * /SERVER:$dest /TIME:0 "$msgText" 2>&1
                         if ($LASTEXITCODE -eq 0) {
-                            Write-Host "   OK -> $($target.machineName)" -ForegroundColor Green
+                            Write-Host "   OK [msg.exe] -> $($target.machineName) ($dest)" -ForegroundColor Green
                             $results += @{ machineName = $target.machineName; success = $true; errorDetail = "" }
                         } else {
                             $errMsg = ($out | Out-String).Trim()
-                            Write-Host "   FALHA -> $($target.machineName): $errMsg" -ForegroundColor Red
+                            Write-Host "   FALHA [msg.exe] -> $($target.machineName) ($dest): $errMsg" -ForegroundColor Red
                             $results += @{ machineName = $target.machineName; success = $false; errorDetail = $errMsg }
                         }
                     }
@@ -3604,11 +3757,13 @@ app.post("/api/messages/send", async (req, res) => {
       sender = "admin.silva",
       targetMode = "all",
       targetMachines = [],
+      targetIpMap = {},
+      fallbackComputers = [],
       onlyActiveMachines = true,
       requireAck = true,
       playSound = true,
       autoCloseSeconds = 0,
-      deliveryMethod = "hybrid",
+      deliveryMethod = "msg_exe",
       scheduleType = "immediate",
       scheduledAt,
       recurrenceTime,
@@ -3627,6 +3782,8 @@ app.post("/api/messages/send", async (req, res) => {
       return res.status(400).json({ error: "Informe a data e hora para o agendamento único." });
     }
 
+    const normalizedMethod: "msg_exe" | "winrm" = deliveryMethod === "winrm" ? "winrm" : "msg_exe";
+
     const id = "msg_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6);
     const createdAt = getBrazilTimestamp();
     const nextRunAt = computeNextRunAt(scheduleType, scheduledAt, recurrenceTime, recurrenceDays, false);
@@ -3640,11 +3797,13 @@ app.post("/api/messages/send", async (req, res) => {
       sender,
       targetMode,
       targetMachines: targetMode === "all" ? [] : targetMachines,
+      targetIpMap: targetIpMap && typeof targetIpMap === "object" ? targetIpMap : undefined,
+      fallbackComputers: Array.isArray(fallbackComputers) && fallbackComputers.length > 0 ? fallbackComputers : undefined,
       onlyActiveMachines: Boolean(onlyActiveMachines),
       requireAck: Boolean(requireAck),
       playSound: Boolean(playSound),
       autoCloseSeconds: Number(autoCloseSeconds) || 0,
-      deliveryMethod,
+      deliveryMethod: normalizedMethod,
       scheduleType,
       scheduledAt,
       recurrenceTime,
@@ -3838,6 +3997,7 @@ app.get("/api/messages/gateway-queue", (req, res) => {
     title: string;
     body: string;
     urgency: string;
+    deliveryMethod: "msg_exe" | "winrm";
     targets: Array<{ machineName: string; ipAddress?: string }>;
   }> = [];
 
@@ -3852,6 +4012,7 @@ app.get("/api/messages/gateway-queue", (req, res) => {
         title: msg.title,
         body: msg.body,
         urgency: msg.urgency,
+        deliveryMethod: msg.deliveryMethod === "winrm" ? "winrm" : "msg_exe",
         targets: pendingTargets
       });
     } else {
@@ -3976,10 +4137,19 @@ app.get("/api/messages/powershell-script", (req, res) => {
   let title = String(req.query.title || "Aviso Importante de TI");
   let body = String(req.query.body || "Favor salvar seus documentos. Reinicializacao programada em 10 minutos.");
   let urgency = String(req.query.urgency || "warning");
+  let deliveryMethod: "msg_exe" | "winrm" = req.query.deliveryMethod === "winrm" ? "winrm" : "msg_exe";
   let targetMode: "all" | "selected" = req.query.targetMode === "selected" ? "selected" : "all";
   let targetMachines = req.query.targets
     ? String(req.query.targets).split(",").map((s) => s.trim()).filter(Boolean)
     : [];
+  let targetIpMap: Record<string, string> | undefined = undefined;
+  if (req.query.targetIps) {
+    try {
+      targetIpMap = JSON.parse(String(req.query.targetIps));
+    } catch {}
+  }
+
+  let resolvedTargets: Array<{ machineName: string; ipAddress?: string }> = [];
 
   if (messageId) {
     const found = readMessages().find((m) => m.id === messageId);
@@ -3987,9 +4157,20 @@ app.get("/api/messages/powershell-script", (req, res) => {
       title = found.title;
       body = found.body;
       urgency = found.urgency;
+      deliveryMethod = found.deliveryMethod === "winrm" ? "winrm" : "msg_exe";
       targetMode = found.targetMode;
       targetMachines = found.targetMachines || [];
+      if (found.receipts && found.receipts.length > 0) {
+        resolvedTargets = found.receipts.map((r) => ({ machineName: r.machineName, ipAddress: r.ipAddress }));
+      } else {
+        targetIpMap = found.targetIpMap;
+      }
     }
+  }
+
+  if (resolvedTargets.length === 0) {
+    const built = buildTargetReceipts(targetMode, targetMachines, true, targetIpMap);
+    resolvedTargets = built.receipts.map((r) => ({ machineName: r.machineName, ipAddress: r.ipAddress }));
   }
 
   const protocol = req.headers["x-forwarded-proto"] || req.protocol || "http";
@@ -4000,7 +4181,7 @@ app.get("/api/messages/powershell-script", (req, res) => {
   let fileName = "Enviar-Mensagem-Windows.bat";
 
   if (type === "bat") {
-    scriptContent = generateWindowsMsgBatScript({ title, body, urgency, targetMode, targetMachines });
+    scriptContent = generateWindowsMsgBatScript({ title, body, urgency, targetMode, resolvedTargets });
     fileName = "Enviar-Mensagem-Windows.bat";
   } else if (type === "gateway") {
     scriptContent = generateMsgGatewayScript(serverUrl);
@@ -4010,8 +4191,9 @@ app.get("/api/messages/powershell-script", (req, res) => {
       title,
       body,
       urgency,
+      deliveryMethod,
       targetMode,
-      targetMachines,
+      resolvedTargets,
       domain: cfg.domain || "inema.intranet",
       serverUrl,
       messageId

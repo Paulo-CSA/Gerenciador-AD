@@ -142,7 +142,8 @@ export default function BroadcastMessages({
   const [requireAck, setRequireAck] = useState(true);
   const [playSound, setPlaySound] = useState(true);
   const [autoCloseSeconds, setAutoCloseSeconds] = useState(0);
-  const [deliveryMethod, setDeliveryMethod] = useState<'realtime_agent' | 'powershell_msg' | 'hybrid'>('hybrid');
+  const [deliveryMethod, setDeliveryMethod] = useState<'msg_exe' | 'winrm'>('msg_exe');
+  const [manualIpMap, setManualIpMap] = useState<Record<string, string>>({});
 
   // Scheduling states
   const [scheduleType, setScheduleType] = useState<BroadcastScheduleType>('immediate');
@@ -163,9 +164,11 @@ export default function BroadcastMessages({
     title: string;
     body: string;
     urgency: MessageUrgency;
+    deliveryMethod: 'msg_exe' | 'winrm';
     summary: BroadcastDeliverySummary;
     targetMode: 'all' | 'selected';
     targets: string[];
+    receipts: Array<{ machineName: string; ipAddress?: string }>;
   } | null>(null);
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
   const [detailMessage, setDetailMessage] = useState<BroadcastMessage | null>(null);
@@ -189,6 +192,48 @@ export default function BroadcastMessages({
     }
   };
 
+  const isValidIp = (ip?: string): boolean => {
+    if (!ip) return false;
+    const s = ip.trim();
+    return /^(?:\d{1,3}\.){3}\d{1,3}$/.test(s);
+  };
+
+  const isServerOS = (comp: ADComputer): boolean =>
+    (comp.operatingSystem || '').toLowerCase().includes('server');
+
+  const serverComputersCount = useMemo(
+    () => computers.filter((c) => isServerOS(c)).length,
+    [computers]
+  );
+
+  const nonServerComputers = useMemo(
+    () => computers.filter((c) => !isServerOS(c)),
+    [computers]
+  );
+
+  const activeNonServerCount = useMemo(
+    () => nonServerComputers.filter((c) => c.status !== 'Desativado').length,
+    [nonServerComputers]
+  );
+
+  const eligibleAllCount = onlyActiveMachines ? activeNonServerCount : nonServerComputers.length;
+
+  const resolvedTargetIpMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    computers.forEach((c) => {
+      if (isValidIp(c.ipAddress)) {
+        map[c.name] = c.ipAddress!.trim();
+      }
+    });
+    Object.keys(manualIpMap).forEach((k) => {
+      const v = manualIpMap[k];
+      if (isValidIp(v)) {
+        map[k] = v.trim();
+      }
+    });
+    return map;
+  }, [computers, manualIpMap]);
+
   // Distinct OUs for target machine filter
   const distinctOUs = useMemo(() => {
     const set = new Set<string>();
@@ -208,11 +253,12 @@ export default function BroadcastMessages({
       return (
         c.name.toLowerCase().includes(term) ||
         (c.ipAddress && c.ipAddress.toLowerCase().includes(term)) ||
+        (manualIpMap[c.name] && manualIpMap[c.name].toLowerCase().includes(term)) ||
         (c.ou && c.ou.toLowerCase().includes(term)) ||
         (c.operatingSystem && c.operatingSystem.toLowerCase().includes(term))
       );
     });
-  }, [computers, machineSearch, machineOuFilter, onlyActiveMachines]);
+  }, [computers, machineSearch, machineOuFilter, onlyActiveMachines, manualIpMap]);
 
   // KPI metrics
   const sentMessages = useMemo(
@@ -279,8 +325,10 @@ export default function BroadcastMessages({
           title: title || 'Aviso Importante de TI',
           body: body || 'Favor salvar seus documentos. Manutenção programada em 15 minutos.',
           urgency,
+          deliveryMethod,
           targetMode,
-          targets: selectedMachines.join(',')
+          targets: selectedMachines.join(','),
+          targetIps: JSON.stringify(resolvedTargetIpMap)
         });
         const res = await fetch(`/api/messages/powershell-script?${params.toString()}`);
         const data = await res.json();
@@ -293,21 +341,26 @@ export default function BroadcastMessages({
     };
 
     loadScript();
-  }, [subTab, psTab, title, body, urgency, targetMode, selectedMachines]);
+  }, [subTab, psTab, title, body, urgency, deliveryMethod, targetMode, selectedMachines, resolvedTargetIpMap]);
 
   const gpoBatWrapper = useMemo(() => {
     return `@echo off
 REM ========================================================================
-REM Habilita o recebimento nativo de mensagens Windows (msg.exe /SERVER:)
+REM Habilita recebimento via msg.exe e WinRM por IP (Contorna falhas de DNS)
 REM Aplique via GPO (Script de Inicializacao do Computador ou Registro GPO)
-REM Nenhuma instalacao de agente ou PowerShell oculto e necessaria nas estacoes
 REM ========================================================================
 
+REM 1. Permite msg.exe remoto (AllowRemoteRPC = 1)
 reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server" /v AllowRemoteRPC /t REG_DWORD /d 1 /f
 
-REM Libera regra de firewall padrao do Windows para RPC / Compartilhamento
+REM 2. Habilita WinRM nas estacoes e libera conexao por IP no cliente TI
+winrm quickconfig -q
+winrm set winrm/config/client @{TrustedHosts="*"}
+
+REM 3. Libera firewall padrao para RPC, Compartilhamento e WinRM
 netsh advfirewall firewall set rule group="Compartilhamento de Arquivo e Impressora" new enable=Yes
-netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new enable=Yes`;
+netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new enable=Yes
+netsh advfirewall firewall set rule group="Gerenciamento Remoto do Windows" new enable=Yes`;
   }, []);
 
   const toggleMachine = (name: string) => {
@@ -364,6 +417,16 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new 
         sender: currentUsername || 'admin.silva',
         targetMode,
         targetMachines: targetMode === 'all' ? [] : selectedMachines,
+        targetIpMap: resolvedTargetIpMap,
+        fallbackComputers:
+          targetMode === 'all'
+            ? computers.map((c) => ({
+                name: c.name,
+                ipAddress: manualIpMap[c.name] || c.ipAddress,
+                operatingSystem: c.operatingSystem,
+                status: c.status
+              }))
+            : undefined,
         onlyActiveMachines,
         requireAck,
         playSound,
@@ -402,7 +465,7 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new 
             setLastDeliveryNotice(null);
             showToast(
               'success',
-              'Mensagem enviada para a fila do Despachante Windows msg.exe! Os pop-ups serão exibidos nas estações em instantes.'
+              `Mensagem enviada para a fila do Despachante Windows (${deliveryMethod === 'winrm' ? 'WinRM por IP' : 'msg.exe por IP'})!`
             );
           } else if (summary && summary.pendingAgentCount > 0) {
             setLastDeliveryNotice({
@@ -410,24 +473,29 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new 
               title: title.trim(),
               body: body.trim(),
               urgency,
+              deliveryMethod,
               summary,
               targetMode,
-              targets: targetMode === 'all' ? [] : selectedMachines
+              targets: targetMode === 'all' ? [] : selectedMachines,
+              receipts: (data.message?.receipts || []).map((r: any) => ({
+                machineName: r.machineName,
+                ipAddress: r.ipAddress
+              }))
             });
             if (summary.onlineAgentCount > 0) {
               showToast(
                 'warning',
-                `Pop-up entregue em ${summary.onlineAgentCount} estação(ões). ${summary.pendingAgentCount} máquina(s) aguardando envio via msg.exe.`
+                `Entregue em ${summary.onlineAgentCount} estação(ões). ${summary.pendingAgentCount} aguardando envio via ${deliveryMethod === 'winrm' ? 'WinRM' : 'msg.exe'} por IP.`
               );
             } else {
               showToast(
                 'warning',
-                `Alerta registrado. Use o comando nativo msg.exe do Windows ou conecte o Despachante msg.exe para exibir na tela da estação.`
+                `Alerta registrado. Use o comando por IP (${deliveryMethod === 'winrm' ? 'WinRM' : 'msg.exe'}) ou conecte o Despachante Windows.`
               );
             }
           } else {
             setLastDeliveryNotice(null);
-            showToast('success', 'Pop-up entregue nas estações selecionadas via msg.exe / canal em tempo real!');
+            showToast('success', 'Pop-up entregue nas estações alvo por IP!');
           }
         }
       }
@@ -445,25 +513,31 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new 
       if (res.ok) {
         await onRefreshMessages();
         const summary: BroadcastDeliverySummary | undefined = data.deliverySummary;
+        const methodUsed: 'msg_exe' | 'winrm' = data.message?.deliveryMethod === 'winrm' ? 'winrm' : 'msg_exe';
         if (summary && summary.gatewayOnline) {
           setLastDeliveryNotice(null);
-          showToast('success', 'Mensagem enviada ao Despachante Windows msg.exe para disparo imediato!');
+          showToast('success', `Mensagem enviada ao Despachante Windows (${methodUsed === 'winrm' ? 'WinRM' : 'msg.exe'} por IP)!`);
         } else if (summary && summary.pendingAgentCount > 0 && data.message) {
           setLastDeliveryNotice({
             messageId: data.message.id,
             title: data.message.title,
             body: data.message.body,
             urgency: data.message.urgency,
+            deliveryMethod: methodUsed,
             summary,
             targetMode: data.message.targetMode,
-            targets: data.message.targetMachines || []
+            targets: data.message.targetMachines || [],
+            receipts: (data.message.receipts || []).map((r: any) => ({
+              machineName: r.machineName,
+              ipAddress: r.ipAddress
+            }))
           });
           setSubTab('compose');
           showToast(
             'warning',
             summary.onlineAgentCount > 0
-              ? `Entregue em ${summary.onlineAgentCount} estação(ões); ${summary.pendingAgentCount} aguardando msg.exe.`
-              : 'Alerta pronto para disparo nativo via Windows msg.exe.'
+              ? `Entregue em ${summary.onlineAgentCount} estação(ões); ${summary.pendingAgentCount} aguardando ${methodUsed === 'winrm' ? 'WinRM' : 'msg.exe'} por IP.`
+              : `Alerta pronto para disparo por IP (${methodUsed === 'winrm' ? 'WinRM' : 'msg.exe'}).`
           );
         } else {
           setLastDeliveryNotice(null);
@@ -517,8 +591,10 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new 
       title: customMsg?.title || title || 'Aviso Importante de TI',
       body: customMsg?.body || body || 'Favor salvar seus documentos.',
       urgency: customMsg?.urgency || urgency,
+      deliveryMethod: customMsg?.deliveryMethod || deliveryMethod,
       targetMode: customMsg?.targetMode || targetMode,
-      targets: (customMsg?.targetMachines || selectedMachines).join(',')
+      targets: (customMsg?.targetMachines || selectedMachines).join(','),
+      targetIps: JSON.stringify(resolvedTargetIpMap)
     });
     window.location.href = `/api/messages/powershell-script?${params.toString()}`;
   };
@@ -642,143 +718,151 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new 
         </div>
       )}
 
-      {/* Native Windows msg.exe Delivery Panel (Zero EDR/Antivirus Risk) */}
-      {lastDeliveryNotice && lastDeliveryNotice.summary.pendingAgentCount > 0 && (
-        <div className="bg-amber-50/90 border border-amber-300 rounded-xl p-5 space-y-4">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-              <div className="space-y-1">
-                <h4 className="text-sm font-bold text-slate-900">
-                  Envio Nativo via Windows <code className="font-mono">msg.exe</code> (Sem Risco de Segurança)
-                </h4>
-                <p className="text-xs text-slate-700 leading-relaxed">
-                  Como este servidor web roda em ambiente <strong>{lastDeliveryNotice.summary.serverPlatform}</strong> e não tem acesso direto ao comando nativo{' '}
-                  <code className="font-mono">msg.exe</code> do Windows para{' '}
-                  <strong>
-                    {lastDeliveryNotice.summary.offlineMachines.length > 0
-                      ? lastDeliveryNotice.summary.offlineMachines.join(', ')
-                      : `${lastDeliveryNotice.summary.pendingAgentCount} máquina(s)`}
-                  </strong>
-                  , utilize o método nativo e seguro abaixo (sem PowerShell Bypass ou execução remota de scripts):
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setLastDeliveryNotice(null)}
-              className="text-slate-400 hover:text-slate-700 cursor-pointer p-1"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+      {/* Native Windows msg.exe / WinRM by IP Delivery Panel */}
+      {lastDeliveryNotice && lastDeliveryNotice.summary.pendingAgentCount > 0 && (() => {
+        const badge =
+          lastDeliveryNotice.urgency === 'urgent'
+            ? 'ALERTA URGENTE'
+            : lastDeliveryNotice.urgency === 'warning'
+            ? 'AVISO DE ATENCAO'
+            : 'COMUNICADO DE TI';
+        const cleanMsg = `[${badge}] ${lastDeliveryNotice.title} - ${lastDeliveryNotice.body}`.replace(/"/g, "'");
+        const destTargets =
+          lastDeliveryNotice.receipts.length > 0
+            ? lastDeliveryNotice.receipts.map((r) => ({
+                label: r.machineName,
+                dest: r.ipAddress || resolvedTargetIpMap[r.machineName] || r.machineName
+              }))
+            : (lastDeliveryNotice.targets.length > 0
+                ? lastDeliveryNotice.targets
+                : lastDeliveryNotice.summary.offlineMachines
+              ).map((m) => ({
+                label: m,
+                dest: resolvedTargetIpMap[m] || m
+              }));
+        const buildCmdLine = (dest: string) =>
+          lastDeliveryNotice.deliveryMethod === 'winrm'
+            ? `powershell -Command "Invoke-Command -ComputerName ${dest} -ScriptBlock { msg.exe * /TIME:0 '${cleanMsg.replace(/'/g, "''")}' }"`
+            : `msg * /SERVER:${dest} /TIME:0 "${cleanMsg}"`;
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            {/* Option 1: Pure Windows CMD msg.exe + .BAT download */}
-            <div className="bg-white border border-amber-200 rounded-lg p-3.5 space-y-2.5">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-bold text-slate-900">
-                  1. Comando Nativo Windows <code className="font-mono">msg.exe</code> (CMD / .BAT)
-                </span>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const badge =
-                        lastDeliveryNotice.urgency === 'urgent'
-                          ? 'ALERTA URGENTE'
-                          : lastDeliveryNotice.urgency === 'warning'
-                          ? 'AVISO DE ATENCAO'
-                          : 'COMUNICADO DE TI';
-                      const cleanMsg = `[${badge}] ${lastDeliveryNotice.title} - ${lastDeliveryNotice.body}`.replace(/"/g, "'");
-                      const list =
-                        lastDeliveryNotice.targets.length > 0
-                          ? lastDeliveryNotice.targets
-                          : lastDeliveryNotice.summary.offlineMachines;
-                      const cmd = (list.length > 0 ? list : ['NB-INEMA-12440'])
-                        .map((m) => `msg * /SERVER:${m} /TIME:0 "${cleanMsg}"`)
-                        .join(' && ');
-                      copyQuickCommand('msg_cmd', cmd);
-                    }}
-                    className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-md text-[11px] font-semibold cursor-pointer inline-flex items-center gap-1"
-                  >
-                    {copiedCmd === 'msg_cmd' ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                    {copiedCmd === 'msg_cmd' ? 'Copiado!' : 'Copiar CMD'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleDownloadPs('bat', {
-                        id: lastDeliveryNotice.messageId,
-                        title: lastDeliveryNotice.title,
-                        body: lastDeliveryNotice.body,
-                        urgency: lastDeliveryNotice.urgency,
-                        category: '',
-                        sender: currentUsername,
-                        targetMode: lastDeliveryNotice.targetMode,
-                        targetMachines: lastDeliveryNotice.targets,
-                        requireAck: true,
-                        playSound: true,
-                        autoCloseSeconds: 0,
-                        deliveryMethod: 'powershell_msg',
-                        scheduleType: 'immediate',
-                        status: 'enviada',
-                        createdAt: '',
-                        runCount: 1,
-                        receipts: []
-                      })
-                    }
-                    className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-md text-[11px] font-semibold cursor-pointer inline-flex items-center gap-1"
-                  >
-                    <Download className="w-3 h-3" />
-                    Baixar .BAT
-                  </button>
+        return (
+          <div className="bg-amber-50/90 border border-amber-300 rounded-xl p-5 space-y-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <h4 className="text-sm font-bold text-slate-900">
+                    Envio Direto por IP via{' '}
+                    <code className="font-mono">
+                      {lastDeliveryNotice.deliveryMethod === 'winrm' ? 'WinRM' : 'msg.exe'}
+                    </code>{' '}
+                    (Sem depender de DNS)
+                  </h4>
+                  <p className="text-xs text-slate-700 leading-relaxed">
+                    Como este servidor web roda em ambiente <strong>{lastDeliveryNotice.summary.serverPlatform}</strong>, utilize o comando por <strong>IP</strong> abaixo ou conecte o Despachante Windows para disparo automático para{' '}
+                    <strong>
+                      {lastDeliveryNotice.summary.offlineMachines.length > 0
+                        ? lastDeliveryNotice.summary.offlineMachines.join(', ')
+                        : `${lastDeliveryNotice.summary.pendingAgentCount} máquina(s)`}
+                    </strong>:
+                  </p>
                 </div>
               </div>
-              <p className="text-[11px] text-slate-500">
-                Execute no Prompt de Comando (CMD) de qualquer PC administrativo na rede <code className="font-mono">{adDomain}</code>. Usa apenas o <code className="font-mono">msg.exe</code> oficial do Windows, sem acionar antivírus.
-              </p>
-              <pre className="p-2 bg-slate-900 text-slate-200 rounded text-[10px] font-mono overflow-x-auto">
-                {(lastDeliveryNotice.targets.length > 0
-                  ? lastDeliveryNotice.targets
-                  : lastDeliveryNotice.summary.offlineMachines.length > 0
-                  ? lastDeliveryNotice.summary.offlineMachines
-                  : ['NB-INEMA-12440']
-                )
-                  .slice(0, 3)
-                  .map(
-                    (m) =>
-                      `msg * /SERVER:${m} /TIME:0 "[${lastDeliveryNotice.urgency === 'urgent' ? 'ALERTA URGENTE' : 'AVISO'}] ${lastDeliveryNotice.title} - ${lastDeliveryNotice.body}"`
-                  )
-                  .join('\n')}
-              </pre>
+              <button
+                type="button"
+                onClick={() => setLastDeliveryNotice(null)}
+                className="text-slate-400 hover:text-slate-700 cursor-pointer p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
-            {/* Option 2: Automated Windows msg.exe Gateway */}
-            <div className="bg-white border border-amber-200 rounded-lg p-3.5 space-y-2.5">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-bold text-slate-900">
-                  2. Automatizar Envio via Painel (Despachante <code className="font-mono">msg.exe</code>)
-                </span>
-                <button
-                  type="button"
-                  onClick={() => handleDownloadPs('gateway')}
-                  className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-[11px] font-semibold cursor-pointer inline-flex items-center gap-1 shrink-0"
-                >
-                  <Download className="w-3 h-3" />
-                  Baixar Gateway (.ps1)
-                </button>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              {/* Option 1: Direct IP command + .BAT / .PS1 download */}
+              <div className="bg-white border border-amber-200 rounded-lg p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-slate-900">
+                    1. Comando por IP ({lastDeliveryNotice.deliveryMethod === 'winrm' ? 'WinRM' : 'msg.exe CMD / .BAT'})
+                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const cmd = destTargets.map((t) => buildCmdLine(t.dest)).join(' && ');
+                        copyQuickCommand('msg_cmd', cmd);
+                      }}
+                      className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-md text-[11px] font-semibold cursor-pointer inline-flex items-center gap-1"
+                    >
+                      {copiedCmd === 'msg_cmd' ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                      {copiedCmd === 'msg_cmd' ? 'Copiado!' : 'Copiar Comando'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleDownloadPs(lastDeliveryNotice.deliveryMethod === 'winrm' ? 'push' : 'bat', {
+                          id: lastDeliveryNotice.messageId,
+                          title: lastDeliveryNotice.title,
+                          body: lastDeliveryNotice.body,
+                          urgency: lastDeliveryNotice.urgency,
+                          category: '',
+                          sender: currentUsername,
+                          targetMode: lastDeliveryNotice.targetMode,
+                          targetMachines: lastDeliveryNotice.targets,
+                          requireAck: true,
+                          playSound: true,
+                          autoCloseSeconds: 0,
+                          deliveryMethod: lastDeliveryNotice.deliveryMethod,
+                          scheduleType: 'immediate',
+                          status: 'enviada',
+                          createdAt: '',
+                          runCount: 1,
+                          receipts: []
+                        })
+                      }
+                      className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-md text-[11px] font-semibold cursor-pointer inline-flex items-center gap-1"
+                    >
+                      <Download className="w-3 h-3" />
+                      {lastDeliveryNotice.deliveryMethod === 'winrm' ? 'Baixar .PS1' : 'Baixar .BAT'}
+                    </button>
+                  </div>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Os destinos utilizam prioritariamente o <strong>endereço IP</strong> da estação para contornar problemas de DNS.
+                </p>
+                <pre className="p-2 bg-slate-900 text-slate-200 rounded text-[10px] font-mono overflow-x-auto">
+                  {destTargets
+                    .slice(0, 4)
+                    .map((t) => buildCmdLine(t.dest))
+                    .join('\n')}
+                </pre>
               </div>
-              <p className="text-[11px] text-slate-500">
-                Salve e execute este script limpo em <strong>apenas 1 Servidor Windows ou PC de TI</strong> (não precisa instalar nada nas estações). Sempre que você clicar em Enviar aqui no site, ele dispara o <code className="font-mono">msg.exe</code> na rede automaticamente e atualiza o recibo.
-              </p>
-              <div className="text-[11px] text-slate-600 bg-slate-50 border border-slate-200 rounded p-2 font-mono">
-                Status do Despachante: {gatewayClients.length > 0 ? `Online (${gatewayClients[0].machineName})` : 'Nenhum despachante Windows conectado ainda'}
+
+              {/* Option 2: Automated Windows Gateway */}
+              <div className="bg-white border border-amber-200 rounded-lg p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-slate-900">
+                    2. Automatizar Envio via Painel (Despachante WinRM / msg.exe)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadPs('gateway')}
+                    className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-[11px] font-semibold cursor-pointer inline-flex items-center gap-1 shrink-0"
+                  >
+                    <Download className="w-3 h-3" />
+                    Baixar Gateway (.ps1)
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Execute em <strong>apenas 1 Servidor Windows ou PC de TI</strong>. Ele consulta a fila do painel e dispara automaticamente via <strong>IP</strong> usando <code className="font-mono">msg.exe</code> ou <code className="font-mono">WinRM</code> conforme selecionado.
+                </p>
+                <div className="text-[11px] text-slate-600 bg-slate-50 border border-slate-200 rounded p-2 font-mono">
+                  Status do Despachante: {gatewayClients.length > 0 ? `Online (${gatewayClients[0].machineName})` : 'Nenhum despachante Windows conectado ainda'}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* 4 Metric Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1091,13 +1175,15 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new 
                   </label>
                   <select
                     value={deliveryMethod}
-                    onChange={(e) => setDeliveryMethod(e.target.value as any)}
+                    onChange={(e) => setDeliveryMethod(e.target.value as 'msg_exe' | 'winrm')}
                     className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   >
-                    <option value="hybrid">Híbrido (WebSocket Tempo Real + Agente PowerShell)</option>
-                    <option value="realtime_agent">Apenas Agente Tempo Real (WebSocket / SSE)</option>
-                    <option value="powershell_msg">Script PowerShell Remoto (WinRM / msg.exe)</option>
+                    <option value="msg_exe">msg.exe (Nativo Windows por IP)</option>
+                    <option value="winrm">WinRM (PowerShell Remoto por IP)</option>
                   </select>
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    Envia diretamente para o endereço <strong>IP</strong> da máquina (não depende de resolução DNS).
+                  </p>
                 </div>
 
                 <div>
@@ -1232,9 +1318,7 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new 
                 Destino:{' '}
                 <strong className="text-slate-800">
                   {targetMode === 'all'
-                    ? onlyActiveMachines
-                      ? `Todas as máquinas ativas (${computers.filter((c) => c.status !== 'Desativado').length})`
-                      : `Todas as máquinas do AD (${computers.length})`
+                    ? `Todas as estações (${eligibleAllCount} · excl. ${serverComputersCount} Windows Server)`
                     : `${selectedMachines.length} equipamento(s) selecionado(s)`}
                 </strong>
               </div>
@@ -1315,10 +1399,10 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new 
                     </div>
                     <div>
                       <p className="text-xs font-bold text-slate-800">
-                        Envio Global para Toda a Rede ({adDomain})
+                        Envio Global para Estações de Trabalho ({adDomain})
                       </p>
                       <p className="text-[11px] text-slate-500">
-                        Todas as estações desktop conectadas e usuários logados receberão o aviso em tempo real.
+                        Envia via IP para as estações da rede. Máquinas com sistema <strong>Windows Server</strong> ({serverComputersCount}) são excluídas automaticamente.
                       </p>
                     </div>
                   </div>
@@ -1331,7 +1415,7 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new 
                       className="rounded border-slate-300"
                     />
                     <span>
-                      Ignorar máquinas desativadas no AD ({computers.filter((c) => c.status !== 'Desativado').length} ativas)
+                      Ignorar máquinas desativadas no AD ({activeNonServerCount} estações ativas; {serverComputersCount} Windows Server excluído(s))
                     </span>
                   </label>
                 </div>
@@ -1395,65 +1479,85 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new 
                       filteredComputers.map((comp) => {
                         const checked = selectedMachines.includes(comp.name);
                         const isAgentOnline = onlineWorkstationSet.has(comp.name.split('.')[0].toUpperCase());
-                        const isSrv =
-                          comp.name.toLowerCase().startsWith('srv') ||
-                          comp.operatingSystem.toLowerCase().includes('server');
+                        const isSrv = isServerOS(comp);
                         const isNb =
                           comp.name.toLowerCase().startsWith('nb') ||
                           comp.name.toLowerCase().includes('note');
+                        const effectiveIp = manualIpMap[comp.name] || (isValidIp(comp.ipAddress) ? comp.ipAddress : '');
 
                         return (
                           <div
                             key={comp.id || comp.name}
                             onClick={() => toggleMachine(comp.name)}
-                            className={`px-3 py-2 flex items-center justify-between gap-2 cursor-pointer transition-colors ${
+                            className={`px-3 py-2 cursor-pointer transition-colors ${
                               checked ? 'bg-blue-50/60' : 'hover:bg-slate-50'
                             }`}
                           >
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              {checked ? (
-                                <CheckSquare className="w-4 h-4 text-blue-600 shrink-0" />
-                              ) : (
-                                <Square className="w-4 h-4 text-slate-400 shrink-0" />
-                              )}
-                              {isSrv ? (
-                                <Server className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                              ) : isNb ? (
-                                <Laptop className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                              ) : (
-                                <Monitor className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                              )}
-                              <div className="min-w-0">
-                                <p className="text-xs font-mono font-bold text-slate-800 truncate">
-                                  {comp.name}
-                                </p>
-                                <p className="text-[10px] text-slate-400 truncate">
-                                  {comp.ipAddress || 'DHCP'} · {comp.ou}
-                                </p>
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                {checked ? (
+                                  <CheckSquare className="w-4 h-4 text-blue-600 shrink-0" />
+                                ) : (
+                                  <Square className="w-4 h-4 text-slate-400 shrink-0" />
+                                )}
+                                {isSrv ? (
+                                  <Server className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                ) : isNb ? (
+                                  <Laptop className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                ) : (
+                                  <Monitor className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                )}
+                                <div className="min-w-0">
+                                  <p className="text-xs font-mono font-bold text-slate-800 truncate">
+                                    {comp.name}
+                                  </p>
+                                  <p className="text-[10px] text-slate-400 truncate">
+                                    <span className={effectiveIp ? 'text-blue-700 font-mono font-semibold' : 'text-amber-600 font-medium'}>
+                                      {effectiveIp || 'Sem IP registrado'}
+                                    </span>{' '}
+                                    · {comp.ou}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span
+                                  className={`text-[10px] font-semibold ${
+                                    isAgentOnline ? 'text-emerald-600' : 'text-slate-400'
+                                  }`}
+                                >
+                                  {isAgentOnline ? 'Online' : comp.operatingSystem?.replace('Windows ', 'Win ')}
+                                </span>
+                                <span className="text-slate-200">|</span>
+                                <span
+                                  className={`text-[10px] font-medium ${
+                                    comp.status === 'Desativado' ? 'text-slate-400' : 'text-slate-600'
+                                  }`}
+                                >
+                                  {comp.status}
+                                </span>
                               </div>
                             </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <span
-                                className={`text-[10px] font-semibold ${
-                                  isAgentOnline ? 'text-emerald-600' : 'text-slate-400'
-                                }`}
-                                title={
-                                  isAgentOnline
-                                    ? 'Agente Desktop conectado em tempo real'
-                                    : 'Sem Agente Desktop conectado (recebe via script PowerShell/msg.exe ou quando o agente iniciar)'
-                                }
+
+                            {checked && (
+                              <div
+                                className="mt-1.5 pl-6 flex items-center gap-2"
+                                onClick={(e) => e.stopPropagation()}
                               >
-                                {isAgentOnline ? 'Agente Online' : 'Sem Agente'}
-                              </span>
-                              <span className="text-slate-200">|</span>
-                              <span
-                                className={`text-[10px] font-medium ${
-                                  comp.status === 'Desativado' ? 'text-slate-400' : 'text-slate-600'
-                                }`}
-                              >
-                                {comp.status}
-                              </span>
-                            </div>
+                                <span className="text-[10px] text-slate-500 shrink-0">IP destino:</span>
+                                <input
+                                  type="text"
+                                  value={manualIpMap[comp.name] ?? (isValidIp(comp.ipAddress) ? comp.ipAddress! : '')}
+                                  onChange={(e) =>
+                                    setManualIpMap((prev) => ({
+                                      ...prev,
+                                      [comp.name]: e.target.value
+                                    }))
+                                  }
+                                  placeholder="Ex: 10.10.20.45"
+                                  className="px-2 py-0.5 text-[11px] font-mono bg-white border border-slate-200 rounded w-36 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                />
+                              </div>
+                            )}
                           </div>
                         );
                       })
@@ -1798,9 +1902,9 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new 
         <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-5">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
             <div>
-              <h3 className="text-base font-bold text-slate-900">Envio Nativo Windows <code className="font-mono">msg.exe</code> & GPO</h3>
+              <h3 className="text-base font-bold text-slate-900">Envio por IP via <code className="font-mono">msg.exe</code> / WinRM & GPO</h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Utilize o recurso nativo <code className="font-mono">msg.exe</code> do Windows (sem PowerShell Bypass, sem download oculto e sem alertas de antivírus/EDR).
+                Utilize <code className="font-mono">msg.exe</code> ou <code className="font-mono">WinRM</code> apontando diretamente para o <strong>endereço IP</strong> da estação (contornando falhas de DNS e sem alertas de antivírus/EDR).
               </p>
             </div>
 
@@ -1812,7 +1916,7 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new 
                   psTab === 'bat' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
                 }`}
               >
-                Arquivo .BAT (msg.exe)
+                Arquivo .BAT (msg.exe por IP)
               </button>
               <button
                 type="button"
@@ -1830,7 +1934,7 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new 
                   psTab === 'push' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
                 }`}
               >
-                PowerShell MSG (.ps1)
+                WinRM / MSG (.ps1 por IP)
               </button>
               <button
                 type="button"
@@ -1839,7 +1943,7 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new 
                   psTab === 'gpo' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
                 }`}
               >
-                GPO AllowRemoteRPC (.bat)
+                GPO AllowRemoteRPC & WinRM
               </button>
             </div>
           </div>
@@ -1850,11 +1954,11 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new 
               {psTab === 'bat' && (
                 <>
                   <p className="font-bold text-slate-800">
-                    Disparo Direto via CMD / Batch (Enviar-Mensagem-Windows.bat)
+                    Disparo Direto via CMD / Batch por IP (Enviar-Mensagem-Windows.bat)
                   </p>
                   <p>
-                    Executa apenas o comando nativo <code className="font-mono">msg.exe * /SERVER:MAQUINA</code> para{' '}
-                    <strong>{targetMode === 'all' ? 'todas as máquinas do AD' : `${selectedMachines.length || 1} máquina(s) selecionada(s)`}</strong>. Zero PowerShell e zero bloqueio de segurança.
+                    Executa apenas o comando nativo <code className="font-mono">msg.exe * /SERVER:&lt;IP&gt;</code> para{' '}
+                    <strong>{targetMode === 'all' ? 'todas as estações (excl. Windows Server)' : `${selectedMachines.length || 1} máquina(s) selecionada(s)`}</strong>.
                   </p>
                 </>
               )}
@@ -1864,27 +1968,27 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto de Servico" new 
                     Despachante Central Windows (DirectoryAdmin-MsgGateway.ps1)
                   </p>
                   <p>
-                    Execute em <strong>1 único servidor Windows ou PC de TI</strong> dentro da intranet. Ele consulta a fila JSON deste painel e dispara o <code className="font-mono">msg.exe</code> nativo automaticamente para as máquinas selecionadas ou agendadas.
+                    Execute em <strong>1 único servidor Windows ou PC de TI</strong> dentro da intranet. Ele consulta a fila JSON deste painel e dispara por <strong>IP</strong> usando <code className="font-mono">msg.exe</code> ou <code className="font-mono">WinRM</code> automaticamente.
                   </p>
                 </>
               )}
               {psTab === 'push' && (
                 <>
                   <p className="font-bold text-slate-800">
-                    Script PowerShell Limpo via msg.exe (Enviar-Alerta-MSG.ps1)
+                    Script PowerShell Limpo por IP ({deliveryMethod === 'winrm' ? 'WinRM' : 'msg.exe'} — Enviar-Alerta-MSG.ps1)
                   </p>
                   <p>
-                    Versão em PowerShell legível e sem flags de bypass/execução remota, utilizando <code className="font-mono">msg.exe</code> e registro automático de entrega no painel.
+                    Executa <code className="font-mono">{deliveryMethod === 'winrm' ? 'Invoke-Command -ComputerName <IP>' : 'msg.exe * /SERVER:<IP>'}</code> e registra entrega no painel sem depender de DNS.
                   </p>
                 </>
               )}
               {psTab === 'gpo' && (
                 <>
                   <p className="font-bold text-slate-800">
-                    Habilitar Recebimento de msg.exe via GPO (AllowRemoteRPC = 1)
+                    Habilitar msg.exe (AllowRemoteRPC = 1) e WinRM por IP via GPO
                   </p>
                   <p>
-                    Para que o Windows 10/11 aceite alertas remotos via <code className="font-mono">msg.exe * /SERVER:</code> sem instalar nenhum agente nas estações, aplique este ajuste de registro/firewall via GPO de Computador.
+                    Habilita <code className="font-mono">AllowRemoteRPC=1</code>, <code className="font-mono">WinRM</code> com <code className="font-mono">TrustedHosts="*"</code> (necessário para WinRM via IP sem DNS) e libera o firewall padrão do Windows.
                   </p>
                 </>
               )}
