@@ -318,60 +318,6 @@
   ],
   "logs": [
     {
-      "id": "log_1794573734113",
-      "timestamp": "2026-11-13 09:42:14",
-      "operator": "admin.silva",
-      "action": "Envio de Alerta na Rede",
-      "targetUser": "1 máquina(s): 127.0.0.1",
-      "details": "[WARNING | MSG_EXE] \"TESTE DIRETO LINUX\" processada para 1 máquina(s): 127.0.0.1 (0 com entrega/canal ativo, 1 pendente(s)).",
-      "type": "warning"
-    },
-    {
-      "id": "log_1794572718037",
-      "timestamp": "2026-11-13 09:25:18",
-      "operator": "admin.silva",
-      "action": "Envio de Alerta na Rede",
-      "targetUser": "Todas as estações ativas (excl. Windows Server)",
-      "details": "[INFO | MSG_EXE] \"TESTE ALL FILTER\" processada para Todas as estações ativas (excl. Windows Server) (1 com entrega/canal ativo, 0 pendente(s)).",
-      "type": "info"
-    },
-    {
-      "id": "log_1794572718013",
-      "timestamp": "2026-11-13 09:25:18",
-      "operator": "admin.silva",
-      "action": "Envio de Alerta na Rede",
-      "targetUser": "1 máquina(s): 172.16.6.44",
-      "details": "[ATTENTION | MSG_EXE] \"TESTE SMOKE\" processada para 1 máquina(s): 172.16.6.44 (0 com entrega/canal ativo, 1 pendente(s)).",
-      "type": "info"
-    },
-    {
-      "id": "log_1794572110288",
-      "timestamp": "2026-11-13 09:15:10",
-      "operator": "admin.silva",
-      "action": "Envio de Alerta na Rede",
-      "targetUser": "1 máquina(s): NB-INEMA-12440",
-      "details": "[INFO | MSG_EXE] \"Teste IP Direto\" processada para 1 máquina(s): NB-INEMA-12440 (1 com entrega/canal ativo, 0 pendente(s)).",
-      "type": "info"
-    },
-    {
-      "id": "log_1794572110273",
-      "timestamp": "2026-11-13 09:15:10",
-      "operator": "admin.silva",
-      "action": "Envio de Alerta na Rede",
-      "targetUser": "Todas as estações ativas (excl. Windows Server)",
-      "details": "[WARNING | WINRM] \"Teste Broadcast Estacoes\" processada para Todas as estações ativas (excl. Windows Server) (0 com entrega/canal ativo, 2 pendente(s)).",
-      "type": "warning"
-    },
-    {
-      "id": "log_1794572033269",
-      "timestamp": "2026-11-13 09:13:53",
-      "operator": "admin.silva",
-      "action": "Envio de Alerta na Rede",
-      "targetUser": "Todas as estações ativas (excl. Windows Server)",
-      "details": "[WARNING | WINRM] \"Teste Broadcast Estacoes\" processada para Todas as estações ativas (excl. Windows Server) (0 com entrega/canal ativo, 0 pendente(s)).",
-      "type": "warning"
-    },
-    {
       "id": "log_1794514569484",
       "timestamp": "2026-11-12 17:16:09",
       "operator": "admin.silva",
