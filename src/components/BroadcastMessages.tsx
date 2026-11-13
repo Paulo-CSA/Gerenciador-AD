@@ -493,10 +493,16 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto do Windows" new 
                 ipAddress: r.ipAddress
               }))
             });
-            const firstErr = summary.nativePushErrors?.[0]?.error || 'Falha no comando remoto';
+            const firstErr = summary.nativePushErrors?.[0]?.error || 'Falha no envio remoto';
             showToast(
               summary.nativePushSucceeded > 0 ? 'warning' : 'error',
-              `Servidor (${summary.serverHostname || summary.serverPlatform}): ${summary.nativePushSucceeded} entregue(s), ${summary.nativePushFailed} falha(s) — ${firstErr}`
+              `Envio direto (${summary.serverHostname || summary.serverPlatform}): ${summary.nativePushSucceeded} entregue(s), ${summary.nativePushFailed} falha(s) — ${firstErr}`
+            );
+          } else if (summary && summary.nativePushAttempted && summary.nativePushSucceeded > 0) {
+            setLastDeliveryNotice(null);
+            showToast(
+              'success',
+              `Pop-up enviado diretamente do servidor (${summary.serverHostname || summary.serverPlatform}) para ${summary.nativePushSucceeded} estação(ões) via ${deliveryMethod === 'winrm' ? 'WinRM' : 'SMB2/RPC (msg)'}!`
             );
           } else if (summary && summary.gatewayOnline) {
             setLastDeliveryNotice(null);
@@ -504,34 +510,6 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto do Windows" new 
               'success',
               `Mensagem enviada para a fila do Despachante Windows (${deliveryMethod === 'winrm' ? 'WinRM por IP' : 'msg.exe por IP'})!`
             );
-          } else if (summary && summary.pendingAgentCount > 0) {
-            setLastDeliveryNotice({
-              messageId: data.message?.id || '',
-              title: title.trim(),
-              body: body.trim(),
-              urgency,
-              deliveryMethod,
-              summary,
-              targetMode,
-              targets: targetMode === 'all' ? [] : selectedMachines,
-              receipts: (data.message?.receipts || []).map((r: any) => ({
-                machineName: r.machineName,
-                ipAddress: r.ipAddress
-              }))
-            });
-            if (summary.onlineAgentCount > 0) {
-              showToast(
-                'warning',
-                `Entregue em ${summary.onlineAgentCount} estação(ões). ${summary.pendingAgentCount} aguardando envio via ${deliveryMethod === 'winrm' ? 'WinRM' : 'msg.exe'} por IP.`
-              );
-            } else {
-              showToast(
-                'warning',
-                summary.serverPlatform !== 'win32'
-                  ? `Servidor em ${summary.serverPlatform} (${summary.serverHostname || 'web'}): conecte o Despachante Windows ou copie o comando por IP abaixo.`
-                  : `Alerta registrado. Use o comando por IP (${deliveryMethod === 'winrm' ? 'WinRM' : 'msg.exe'}) ou conecte o Despachante Windows.`
-              );
-            }
           } else {
             setLastDeliveryNotice(null);
             showToast('success', 'Pop-up enviado diretamente pelo servidor para as estações alvo por IP!');
@@ -821,23 +799,15 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto do Windows" new 
         </div>
       )}
 
-      {/* Server Engine Status Banner (Linux vs Windows + Gateway status) */}
-      {serverInfo.platform !== 'win32' && gatewayClients.length === 0 && !lastDeliveryNotice && (
-        <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="text-xs text-slate-700">
-            <span className="font-bold text-slate-900">
-              Servidor web em Linux ({serverInfo.hostname || serverInfo.platform}):
+      {/* Server Direct Engine Status Banner */}
+      {!lastDeliveryNotice && (
+        <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="text-xs text-emerald-900">
+            <span className="font-bold">
+              Envio Direto do Servidor Ativo ({serverInfo.platform} · {serverInfo.hostname || 'backend'}):
             </span>{' '}
-            O Linux não possui <code className="font-mono">msg.exe</code> nativo. Para o botão <strong>Enviar</strong> disparar diretamente para as estações por IP sem copiar comandos, mantenha o <strong>Despachante Windows (.ps1)</strong> rodando em 1 servidor/PC Windows da rede.
+            O servidor envia o comando <code className="font-mono">msg</code> diretamente para o IP Windows via <strong>SMB2/DCE-RPC (TCP 445)</strong> ou <strong>WinRM (TCP 5985/5986)</strong> usando as credenciais do AD, sem precisar baixar ou executar scripts <code className="font-mono">.ps1</code> em nenhuma estação.
           </div>
-          <button
-            type="button"
-            onClick={() => handleDownloadPs('gateway')}
-            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold cursor-pointer inline-flex items-center gap-1.5 shrink-0"
-          >
-            <Download className="w-3.5 h-3.5" />
-            Baixar Despachante Windows (.ps1)
-          </button>
         </div>
       )}
 
@@ -884,11 +854,12 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto do Windows" new 
                   <p className="text-xs text-slate-700 leading-relaxed">
                     {nativeErrors.length > 0 ? (
                       <>
-                        O servidor Windows executou <code className="font-mono">{lastDeliveryNotice.deliveryMethod === 'winrm' ? 'WinRM' : 'msg.exe'}</code>, mas retornou erro para o destino abaixo. Verifique os detalhes ou use o comando / Despachante em uma estação administrativa:
+                        O servidor ({lastDeliveryNotice.summary.serverPlatform} · {lastDeliveryNotice.summary.serverHostname || 'backend'}) tentou o envio direto via{' '}
+                        <code className="font-mono">{lastDeliveryNotice.deliveryMethod === 'winrm' ? 'WinRM 5985/5986' : 'SMB2/MS-TSTS (TCP 445)'}</code>, mas o destino recusou ou não respondeu. Veja o diagnóstico exato abaixo:
                       </>
                     ) : (
                       <>
-                        Como este servidor web roda em ambiente <strong>{lastDeliveryNotice.summary.serverPlatform}</strong> ({lastDeliveryNotice.summary.serverHostname || 'container'}), ele não possui o executável <code className="font-mono">msg.exe</code> nativo. Utilize o comando por <strong>IP</strong> abaixo em qualquer PC Windows ou conecte o Despachante Windows para disparo automático para{' '}
+                        Resumo de entrega para{' '}
                         <strong>
                           {lastDeliveryNotice.summary.offlineMachines.length > 0
                             ? lastDeliveryNotice.summary.offlineMachines.join(', ')
@@ -910,7 +881,7 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto do Windows" new 
 
             {nativeErrors.length > 0 && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-1">
-                <div className="text-[11px] font-bold text-red-800">Diagnóstico retornado pelo servidor Windows:</div>
+                <div className="text-[11px] font-bold text-red-800">Diagnóstico retornado na conexão direta ao destino:</div>
                 {nativeErrors.map((e, i) => (
                   <div key={i} className="text-[11px] font-mono text-red-700">
                     • {e.machineName} ({e.dest}): {e.error}

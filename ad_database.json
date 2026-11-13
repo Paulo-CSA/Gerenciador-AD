@@ -318,6 +318,15 @@
   ],
   "logs": [
     {
+      "id": "log_1794573734113",
+      "timestamp": "2026-11-13 09:42:14",
+      "operator": "admin.silva",
+      "action": "Envio de Alerta na Rede",
+      "targetUser": "1 máquina(s): 127.0.0.1",
+      "details": "[WARNING | MSG_EXE] \"TESTE DIRETO LINUX\" processada para 1 máquina(s): 127.0.0.1 (0 com entrega/canal ativo, 1 pendente(s)).",
+      "type": "warning"
+    },
+    {
       "id": "log_1794572718037",
       "timestamp": "2026-11-13 09:25:18",
       "operator": "admin.silva",
