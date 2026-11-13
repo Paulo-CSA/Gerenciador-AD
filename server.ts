@@ -2,6 +2,7 @@ import express from "express";
 import http from "http";
 import path from "path";
 import fs from "fs";
+import os from "os";
 import { createServer as createViteServer } from "vite";
 import dns from "dns";
 import { execFile } from "child_process";
@@ -3316,13 +3317,43 @@ function buildTargetReceipts(
   return { receipts, onlineWsOrSseMap, onlinePollingMap };
 }
 
-function sendMsgExeToWindowsHost(dest: string, text: string): Promise<{ ok: boolean; error?: string }> {
+function resolveWindowsMsgExePath(): string {
+  const windir = process.env.WINDIR || "C:\\Windows";
+  const candidates = [
+    path.join(windir, "Sysnative", "msg.exe"),
+    path.join(windir, "System32", "msg.exe"),
+    "msg.exe"
+  ];
+  for (const p of candidates) {
+    if (p === "msg.exe" || fs.existsSync(p)) return p;
+  }
+  return "msg.exe";
+}
+
+function establishWindowsIpcSession(dest: string, username: string, password: string): Promise<{ ok: boolean; error?: string }> {
   return new Promise((resolve) => {
-    if (process.platform !== "win32") return resolve({ ok: false, error: "Servidor em Linux" });
     execFile(
-      "msg.exe",
-      ["*", `/SERVER:${dest}`, "/TIME:0", text],
-      { timeout: 4500, windowsHide: true },
+      "net",
+      ["use", `\\\\${dest}\\IPC$`, `/user:${username}`, password],
+      { timeout: 6000, windowsHide: true },
+      (err, stdout, stderr) => {
+        if (!err) return resolve({ ok: true });
+        const out = (stderr || stdout || err.message || "").trim();
+        // Error 1219 = multiple connections to a server using >1 user; already authenticated
+        if (out.includes("1219")) return resolve({ ok: true });
+        resolve({ ok: false, error: out });
+      }
+    );
+  });
+}
+
+function execMsgExeDirect(msgPath: string, dest: string, text: string): Promise<{ ok: boolean; error?: string }> {
+  return new Promise((resolve) => {
+    const safeText = String(text || "").replace(/\r?\n/g, " ").trim().slice(0, 950);
+    execFile(
+      msgPath,
+      ["*", `/SERVER:${dest}`, "/TIME:0", safeText],
+      { timeout: 12000, windowsHide: true },
       (err, stdout, stderr) => {
         if (!err) return resolve({ ok: true });
         const detail = (stderr || stdout || err.message || "Falha no msg.exe").trim();
@@ -3332,16 +3363,56 @@ function sendMsgExeToWindowsHost(dest: string, text: string): Promise<{ ok: bool
   });
 }
 
-function sendWinRmToWindowsHost(dest: string, text: string): Promise<{ ok: boolean; error?: string }> {
+async function sendMsgExeToWindowsHost(dest: string, text: string): Promise<{ ok: boolean; error?: string }> {
+  if (process.platform !== "win32") {
+    return {
+      ok: false,
+      error: `Servidor web rodando em ${process.platform} (${os.hostname()}): msg.exe nativo só executa em servidor Windows ou via Despachante Windows.`
+    };
+  }
+  const msgPath = resolveWindowsMsgExePath();
+  const firstTry = await execMsgExeDirect(msgPath, dest, text);
+  if (firstTry.ok) return firstTry;
+
+  // If server runs as LocalSystem / service account without domain token, retry after authenticating IPC$ with AD service credentials
+  const cfg = readConfig();
+  if (cfg.username && cfg.password) {
+    const ipcRes = await establishWindowsIpcSession(dest, cfg.username, cfg.password);
+    if (ipcRes.ok) {
+      const retry = await execMsgExeDirect(msgPath, dest, text);
+      if (retry.ok) return retry;
+      return { ok: false, error: retry.error || firstTry.error };
+    }
+    return { ok: false, error: `${firstTry.error} | IPC$ (${cfg.username}): ${ipcRes.error}` };
+  }
+
+  return firstTry;
+}
+
+function execWinRmPowerShell(
+  dest: string,
+  text: string,
+  cred?: { username: string; password: string }
+): Promise<{ ok: boolean; error?: string }> {
   return new Promise((resolve) => {
-    if (process.platform !== "win32") return resolve({ ok: false, error: "Servidor em Linux" });
-    const safeDest = dest.replace(/'/g, "''");
-    const safeText = text.replace(/'/g, "''");
-    const psCmd = `Invoke-Command -ComputerName '${safeDest}' -ScriptBlock { param($m) msg.exe * /TIME:0 $m } -ArgumentList '${safeText}' -ErrorAction Stop`;
+    const safeText = String(text || "").slice(0, 950);
+    const psCmd = cred
+      ? "$sec = ConvertTo-SecureString $env:AD_PUSH_PASS -AsPlainText -Force; $c = New-Object System.Management.Automation.PSCredential($env:AD_PUSH_USER, $sec); Invoke-Command -ComputerName $env:AD_PUSH_DEST -Credential $c -ScriptBlock { param($m) msg.exe * /TIME:0 $m } -ArgumentList $env:AD_PUSH_TEXT -ErrorAction Stop"
+      : "Invoke-Command -ComputerName $env:AD_PUSH_DEST -ScriptBlock { param($m) msg.exe * /TIME:0 $m } -ArgumentList $env:AD_PUSH_TEXT -ErrorAction Stop";
+
     execFile(
       "powershell.exe",
       ["-NoProfile", "-Command", psCmd],
-      { timeout: 8000, windowsHide: true },
+      {
+        timeout: 12000,
+        windowsHide: true,
+        env: {
+          ...process.env,
+          AD_PUSH_DEST: dest,
+          AD_PUSH_TEXT: safeText,
+          ...(cred ? { AD_PUSH_USER: cred.username, AD_PUSH_PASS: cred.password } : {})
+        }
+      },
       (err, stdout, stderr) => {
         if (!err) return resolve({ ok: true });
         const detail = (stderr || stdout || err.message || "Falha no WinRM").trim();
@@ -3349,6 +3420,26 @@ function sendWinRmToWindowsHost(dest: string, text: string): Promise<{ ok: boole
       }
     );
   });
+}
+
+async function sendWinRmToWindowsHost(dest: string, text: string): Promise<{ ok: boolean; error?: string }> {
+  if (process.platform !== "win32") {
+    return {
+      ok: false,
+      error: `Servidor web rodando em ${process.platform} (${os.hostname()}): WinRM nativo requer servidor Windows ou Despachante Windows.`
+    };
+  }
+  const firstTry = await execWinRmPowerShell(dest, text);
+  if (firstTry.ok) return firstTry;
+
+  const cfg = readConfig();
+  if (cfg.username && cfg.password) {
+    const retry = await execWinRmPowerShell(dest, text, { username: cfg.username, password: cfg.password });
+    if (retry.ok) return retry;
+    return { ok: false, error: retry.error || firstTry.error };
+  }
+
+  return firstTry;
 }
 
 export interface DispatchDeliverySummary {
@@ -3360,6 +3451,8 @@ export interface DispatchDeliverySummary {
   nativePushFailed: number;
   gatewayOnline: boolean;
   serverPlatform: string;
+  serverHostname: string;
+  nativePushErrors: Array<{ machineName: string; dest: string; error: string }>;
   offlineMachines: string[];
 }
 
@@ -3392,34 +3485,41 @@ async function dispatchBroadcastMessage(
   let nativePushAttempted = false;
   let nativePushSucceeded = 0;
   let nativePushFailed = 0;
+  const nativePushErrors: Array<{ machineName: string; dest: string; error: string }> = [];
 
   if (process.platform === "win32" && msg.receipts.length > 0) {
     nativePushAttempted = true;
     const badge =
       msg.urgency === "urgent" ? "ALERTA URGENTE" : msg.urgency === "warning" ? "AVISO DE ATENCAO" : "COMUNICADO DE TI";
-    const formattedMsg = `[${badge}] ${msg.title}\r\n\r\n${msg.body}`;
+    const formattedMsg = `[${badge}] ${msg.title} - ${msg.body}`;
     const targetsToPush = msg.receipts.slice(0, 40);
 
     await Promise.all(
       targetsToPush.map(async (rec) => {
         // Always prioritize IP address instead of hostname to bypass DNS issues
-        const targetDest = cleanValidIp(rec.ipAddress) || rec.machineName;
+        const validIp = cleanValidIp(rec.ipAddress);
+        const targetDest = validIp || rec.machineName;
         const result =
           normalizedMethod === "winrm"
             ? await sendWinRmToWindowsHost(targetDest, formattedMsg)
             : await sendMsgExeToWindowsHost(targetDest, formattedMsg);
         if (result.ok) {
           nativePushSucceeded++;
-          if (rec.status === "pendente") {
+          if (rec.status === "pendente" || rec.status === "falha") {
             rec.status = "entregue";
             rec.deliveredAt = nowTs;
             rec.errorDetail = undefined;
           }
         } else {
           nativePushFailed++;
+          const errDetail = validIp
+            ? (result.error || "Falha ao enviar para o IP.")
+            : `Sem IP cadastrado (tentou hostname ${targetDest}): ${result.error || "Falha RPC/DNS"}`;
           if (rec.status === "pendente") {
-            rec.errorDetail = result.error;
+            rec.status = "falha";
+            rec.errorDetail = errDetail;
           }
+          nativePushErrors.push({ machineName: rec.machineName, dest: targetDest, error: errDetail });
         }
       })
     );
@@ -3472,6 +3572,8 @@ async function dispatchBroadcastMessage(
     nativePushFailed,
     gatewayOnline,
     serverPlatform: process.platform,
+    serverHostname: os.hostname(),
+    nativePushErrors: nativePushErrors.slice(0, 10),
     offlineMachines: offlineMachines.slice(0, 12)
   };
 
@@ -3742,7 +3844,42 @@ app.get("/api/messages", (req, res) => {
   res.json({
     messages: messages.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")),
     connectedWorkstations: getConnectedWorkstationsSnapshot(),
-    serverPlatform: process.platform
+    serverPlatform: process.platform,
+    serverHostname: os.hostname(),
+    gatewayOnline: connectedMsgGateways.size > 0
+  });
+});
+
+// POST /api/messages/test-ip (Direct diagnostic dispatch from server to an IP)
+app.post("/api/messages/test-ip", async (req, res) => {
+  const ip = cleanValidIp(req.body?.ip) || String(req.body?.ip || "").trim();
+  const method: "msg_exe" | "winrm" = req.body?.deliveryMethod === "winrm" ? "winrm" : "msg_exe";
+  const text = String(req.body?.text || "[TESTE TI] Mensagem de teste direto do servidor DirectoryAdmin.").trim();
+
+  if (!ip) {
+    return res.status(400).json({ ok: false, error: "Informe um endereço IP válido (ex: 172.16.6.44)." });
+  }
+
+  if (process.platform !== "win32") {
+    return res.json({
+      ok: false,
+      serverPlatform: process.platform,
+      serverHostname: os.hostname(),
+      gatewayOnline: connectedMsgGateways.size > 0,
+      error: `Este servidor web roda em ${process.platform} (${os.hostname()}). O Linux não executa ${method === "winrm" ? "WinRM PowerShell" : "msg.exe"} diretamente — use o Despachante Windows (DirectoryAdmin-MsgGateway.ps1) em 1 máquina Windows da rede.`
+    });
+  }
+
+  const result =
+    method === "winrm"
+      ? await sendWinRmToWindowsHost(ip, text)
+      : await sendMsgExeToWindowsHost(ip, text);
+
+  return res.json({
+    ...result,
+    serverPlatform: process.platform,
+    serverHostname: os.hostname(),
+    gatewayOnline: connectedMsgGateways.size > 0
   });
 });
 
@@ -4037,19 +4174,19 @@ app.post("/api/messages/:id/gateway-report", (req, res) => {
   const nowTs = getBrazilTimestamp();
   msg.gatewayDispatchedAt = nowTs;
 
-  if (Array.isArray(results)) {
-    for (const item of results) {
-      const mKey = normalizeHostKey(item.machineName);
-      const rec = msg.receipts.find((r) => normalizeHostKey(r.machineName) === mKey);
-      if (rec) {
-        if (item.success) {
-          rec.status = "entregue";
-          rec.deliveredAt = nowTs;
-          rec.errorDetail = undefined;
-        } else {
-          rec.status = "falha";
-          rec.errorDetail = item.errorDetail || "Falha ao executar msg.exe na estação destino.";
-        }
+  const resultsList = Array.isArray(results) ? results : results ? [results] : [];
+  for (const item of resultsList) {
+    if (!item || !item.machineName) continue;
+    const mKey = normalizeHostKey(item.machineName);
+    const rec = msg.receipts.find((r) => normalizeHostKey(r.machineName) === mKey);
+    if (rec) {
+      if (item.success) {
+        rec.status = "entregue";
+        rec.deliveredAt = nowTs;
+        rec.errorDetail = undefined;
+      } else {
+        rec.status = "falha";
+        rec.errorDetail = item.errorDetail || "Falha ao executar msg.exe na estação destino.";
       }
     }
   }

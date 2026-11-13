@@ -172,6 +172,12 @@ export default function BroadcastMessages({
   } | null>(null);
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
   const [detailMessage, setDetailMessage] = useState<BroadcastMessage | null>(null);
+  const [directIpInput, setDirectIpInput] = useState('');
+  const [serverInfo, setServerInfo] = useState<{ platform: string; hostname: string }>({
+    platform: 'linux',
+    hostname: ''
+  });
+  const [testingDirectIp, setTestingDirectIp] = useState(false);
 
   // Integration tab states
   const [psTab, setPsTab] = useState<'bat' | 'gateway' | 'push' | 'gpo'>('bat');
@@ -179,9 +185,20 @@ export default function BroadcastMessages({
   const [loadingPs, setLoadingPs] = useState(false);
   const [copiedPs, setCopiedPs] = useState(false);
 
+  useEffect(() => {
+    fetch('/api/messages')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.serverPlatform) {
+          setServerInfo({ platform: d.serverPlatform, hostname: d.serverHostname || '' });
+        }
+      })
+      .catch(() => {});
+  }, [messages.length]);
+
   const showToast = (type: 'success' | 'warning' | 'error', text: string) => {
     setFeedback({ type, text });
-    window.setTimeout(() => setFeedback(null), 6500);
+    window.setTimeout(() => setFeedback(null), 8500);
   };
 
   const copyQuickCommand = (key: string, cmd: string) => {
@@ -461,7 +478,27 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto do Windows" new 
           setSubTab('schedules');
         } else {
           const summary: BroadcastDeliverySummary | undefined = data.deliverySummary;
-          if (summary && summary.gatewayOnline) {
+          if (summary && summary.nativePushAttempted && summary.nativePushFailed > 0) {
+            setLastDeliveryNotice({
+              messageId: data.message?.id || '',
+              title: title.trim(),
+              body: body.trim(),
+              urgency,
+              deliveryMethod,
+              summary,
+              targetMode,
+              targets: targetMode === 'all' ? [] : selectedMachines,
+              receipts: (data.message?.receipts || []).map((r: any) => ({
+                machineName: r.machineName,
+                ipAddress: r.ipAddress
+              }))
+            });
+            const firstErr = summary.nativePushErrors?.[0]?.error || 'Falha no comando remoto';
+            showToast(
+              summary.nativePushSucceeded > 0 ? 'warning' : 'error',
+              `Servidor (${summary.serverHostname || summary.serverPlatform}): ${summary.nativePushSucceeded} entregue(s), ${summary.nativePushFailed} falha(s) — ${firstErr}`
+            );
+          } else if (summary && summary.gatewayOnline) {
             setLastDeliveryNotice(null);
             showToast(
               'success',
@@ -490,12 +527,14 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto do Windows" new 
             } else {
               showToast(
                 'warning',
-                `Alerta registrado. Use o comando por IP (${deliveryMethod === 'winrm' ? 'WinRM' : 'msg.exe'}) ou conecte o Despachante Windows.`
+                summary.serverPlatform !== 'win32'
+                  ? `Servidor em ${summary.serverPlatform} (${summary.serverHostname || 'web'}): conecte o Despachante Windows ou copie o comando por IP abaixo.`
+                  : `Alerta registrado. Use o comando por IP (${deliveryMethod === 'winrm' ? 'WinRM' : 'msg.exe'}) ou conecte o Despachante Windows.`
               );
             }
           } else {
             setLastDeliveryNotice(null);
-            showToast('success', 'Pop-up entregue nas estações alvo por IP!');
+            showToast('success', 'Pop-up enviado diretamente pelo servidor para as estações alvo por IP!');
           }
         }
       }
@@ -503,6 +542,49 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto do Windows" new 
       showToast('error', err.message || 'Erro de comunicação com o servidor.');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleAddDirectIp = () => {
+    const ip = directIpInput.trim();
+    if (!isValidIp(ip)) {
+      showToast('error', 'Informe um endereço IPv4 válido (ex: 172.16.6.44).');
+      return;
+    }
+    setSelectedMachines((prev) => (prev.includes(ip) ? prev : [...prev, ip]));
+    setManualIpMap((prev) => ({ ...prev, [ip]: ip }));
+    setDirectIpInput('');
+  };
+
+  const handleTestDirectIp = async (ipToTest: string) => {
+    const clean = ipToTest.trim();
+    if (!isValidIp(clean)) {
+      showToast('error', 'Informe um IPv4 válido para testar o envio direto do servidor (ex: 172.16.6.44).');
+      return;
+    }
+    setTestingDirectIp(true);
+    try {
+      const res = await fetch('/api/messages/test-ip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ip: clean,
+          deliveryMethod,
+          text: title.trim()
+            ? `[TESTE TI] ${title.trim()} - ${body.trim()}`
+            : '[TESTE TI] Teste de alerta direto do servidor DirectoryAdmin.'
+        })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        showToast('success', `Teste enviado diretamente do servidor (${data.serverHostname || data.serverPlatform}) para ${clean}!`);
+      } else {
+        showToast('error', data.error || `Falha ao enviar do servidor para ${clean}.`);
+      }
+    } catch (err: any) {
+      showToast('error', err.message || 'Erro ao testar envio no servidor.');
+    } finally {
+      setTestingDirectIp(false);
     }
   };
 
@@ -514,7 +596,28 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto do Windows" new 
         await onRefreshMessages();
         const summary: BroadcastDeliverySummary | undefined = data.deliverySummary;
         const methodUsed: 'msg_exe' | 'winrm' = data.message?.deliveryMethod === 'winrm' ? 'winrm' : 'msg_exe';
-        if (summary && summary.gatewayOnline) {
+        if (summary && summary.nativePushAttempted && summary.nativePushFailed > 0 && data.message) {
+          setLastDeliveryNotice({
+            messageId: data.message.id,
+            title: data.message.title,
+            body: data.message.body,
+            urgency: data.message.urgency,
+            deliveryMethod: methodUsed,
+            summary,
+            targetMode: data.message.targetMode,
+            targets: data.message.targetMachines || [],
+            receipts: (data.message.receipts || []).map((r: any) => ({
+              machineName: r.machineName,
+              ipAddress: r.ipAddress
+            }))
+          });
+          setSubTab('compose');
+          const firstErr = summary.nativePushErrors?.[0]?.error || 'Falha no comando Windows';
+          showToast(
+            summary.nativePushSucceeded > 0 ? 'warning' : 'error',
+            `Servidor (${summary.serverHostname || summary.serverPlatform}): ${summary.nativePushFailed} falha(s) — ${firstErr}`
+          );
+        } else if (summary && summary.gatewayOnline) {
           setLastDeliveryNotice(null);
           showToast('success', `Mensagem enviada ao Despachante Windows (${methodUsed === 'winrm' ? 'WinRM' : 'msg.exe'} por IP)!`);
         } else if (summary && summary.pendingAgentCount > 0 && data.message) {
@@ -718,8 +821,28 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto do Windows" new 
         </div>
       )}
 
+      {/* Server Engine Status Banner (Linux vs Windows + Gateway status) */}
+      {serverInfo.platform !== 'win32' && gatewayClients.length === 0 && !lastDeliveryNotice && (
+        <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="text-xs text-slate-700">
+            <span className="font-bold text-slate-900">
+              Servidor web em Linux ({serverInfo.hostname || serverInfo.platform}):
+            </span>{' '}
+            O Linux não possui <code className="font-mono">msg.exe</code> nativo. Para o botão <strong>Enviar</strong> disparar diretamente para as estações por IP sem copiar comandos, mantenha o <strong>Despachante Windows (.ps1)</strong> rodando em 1 servidor/PC Windows da rede.
+          </div>
+          <button
+            type="button"
+            onClick={() => handleDownloadPs('gateway')}
+            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold cursor-pointer inline-flex items-center gap-1.5 shrink-0"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Baixar Despachante Windows (.ps1)
+          </button>
+        </div>
+      )}
+
       {/* Native Windows msg.exe / WinRM by IP Delivery Panel */}
-      {lastDeliveryNotice && lastDeliveryNotice.summary.pendingAgentCount > 0 && (() => {
+      {lastDeliveryNotice && (lastDeliveryNotice.summary.pendingAgentCount > 0 || lastDeliveryNotice.summary.nativePushFailed > 0) && (() => {
         const badge =
           lastDeliveryNotice.urgency === 'urgent'
             ? 'ALERTA URGENTE'
@@ -745,6 +868,8 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto do Windows" new 
             ? `powershell -Command "Invoke-Command -ComputerName ${dest} -ScriptBlock { msg.exe * /TIME:0 '${cleanMsg.replace(/'/g, "''")}' }"`
             : `msg * /SERVER:${dest} /TIME:0 "${cleanMsg}"`;
 
+        const nativeErrors = lastDeliveryNotice.summary.nativePushErrors || [];
+
         return (
           <div className="bg-amber-50/90 border border-amber-300 rounded-xl p-5 space-y-4">
             <div className="flex items-start justify-between gap-4">
@@ -752,19 +877,25 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto do Windows" new 
                 <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                 <div className="space-y-1">
                   <h4 className="text-sm font-bold text-slate-900">
-                    Envio Direto por IP via{' '}
-                    <code className="font-mono">
-                      {lastDeliveryNotice.deliveryMethod === 'winrm' ? 'WinRM' : 'msg.exe'}
-                    </code>{' '}
-                    (Sem depender de DNS)
+                    {nativeErrors.length > 0
+                      ? `Falha ao enviar direto do servidor (${lastDeliveryNotice.summary.serverHostname || lastDeliveryNotice.summary.serverPlatform})`
+                      : `Envio Direto por IP via ${lastDeliveryNotice.deliveryMethod === 'winrm' ? 'WinRM' : 'msg.exe'} (Sem depender de DNS)`}
                   </h4>
                   <p className="text-xs text-slate-700 leading-relaxed">
-                    Como este servidor web roda em ambiente <strong>{lastDeliveryNotice.summary.serverPlatform}</strong>, utilize o comando por <strong>IP</strong> abaixo ou conecte o Despachante Windows para disparo automático para{' '}
-                    <strong>
-                      {lastDeliveryNotice.summary.offlineMachines.length > 0
-                        ? lastDeliveryNotice.summary.offlineMachines.join(', ')
-                        : `${lastDeliveryNotice.summary.pendingAgentCount} máquina(s)`}
-                    </strong>:
+                    {nativeErrors.length > 0 ? (
+                      <>
+                        O servidor Windows executou <code className="font-mono">{lastDeliveryNotice.deliveryMethod === 'winrm' ? 'WinRM' : 'msg.exe'}</code>, mas retornou erro para o destino abaixo. Verifique os detalhes ou use o comando / Despachante em uma estação administrativa:
+                      </>
+                    ) : (
+                      <>
+                        Como este servidor web roda em ambiente <strong>{lastDeliveryNotice.summary.serverPlatform}</strong> ({lastDeliveryNotice.summary.serverHostname || 'container'}), ele não possui o executável <code className="font-mono">msg.exe</code> nativo. Utilize o comando por <strong>IP</strong> abaixo em qualquer PC Windows ou conecte o Despachante Windows para disparo automático para{' '}
+                        <strong>
+                          {lastDeliveryNotice.summary.offlineMachines.length > 0
+                            ? lastDeliveryNotice.summary.offlineMachines.join(', ')
+                            : `${lastDeliveryNotice.summary.pendingAgentCount} máquina(s)`}
+                        </strong>:
+                      </>
+                    )}
                   </p>
                 </div>
               </div>
@@ -776,6 +907,17 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto do Windows" new 
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {nativeErrors.length > 0 && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-1">
+                <div className="text-[11px] font-bold text-red-800">Diagnóstico retornado pelo servidor Windows:</div>
+                {nativeErrors.map((e, i) => (
+                  <div key={i} className="text-[11px] font-mono text-red-700">
+                    • {e.machineName} ({e.dest}): {e.error}
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
               {/* Option 1: Direct IP command + .BAT / .PS1 download */}
@@ -1421,6 +1563,65 @@ netsh advfirewall firewall set rule group="Gerenciamento Remoto do Windows" new 
                 </div>
               ) : (
                 <div className="space-y-3">
+                  {/* Direct IP Input + Test from Server */}
+                  <div className="flex items-center gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-lg">
+                    <input
+                      type="text"
+                      placeholder="Adicionar IP direto (ex: 172.16.6.44)"
+                      value={directIpInput}
+                      onChange={(e) => setDirectIpInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddDirectIp();
+                        }
+                      }}
+                      className="flex-1 px-2.5 py-1.5 text-xs font-mono bg-white border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddDirectIp}
+                      className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-semibold rounded-md cursor-pointer whitespace-nowrap"
+                    >
+                      + Adicionar IP
+                    </button>
+                    <button
+                      type="button"
+                      disabled={testingDirectIp || (!directIpInput.trim() && !selectedMachines[0])}
+                      onClick={() => {
+                        const firstTarget = directIpInput.trim() || resolvedTargetIpMap[selectedMachines[0]] || selectedMachines[0] || '';
+                        handleTestDirectIp(firstTarget);
+                      }}
+                      className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[11px] font-semibold rounded-md cursor-pointer whitespace-nowrap disabled:opacity-50"
+                      title="Testa imediatamente se este servidor consegue disparar para o IP informado"
+                    >
+                      {testingDirectIp ? 'Testando...' : 'Testar IP'}
+                    </button>
+                  </div>
+
+                  {/* Manual IP targets not in AD list */}
+                  {selectedMachines.filter((m) => !computers.some((c) => c.name === m)).length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedMachines
+                        .filter((m) => !computers.some((c) => c.name === m))
+                        .map((ip) => (
+                          <span
+                            key={ip}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 border border-blue-200 text-blue-800 rounded-md text-[11px] font-mono font-semibold"
+                          >
+                            {ip}
+                            <button
+                              type="button"
+                              onClick={() => toggleMachine(ip)}
+                              className="text-blue-500 hover:text-red-600 cursor-pointer"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
+                        ))}
+                    </div>
+                  )}
+
                   {/* Search & OU Filter */}
                   <div className="flex flex-col sm:flex-row gap-2">
                     <div className="relative flex-1">

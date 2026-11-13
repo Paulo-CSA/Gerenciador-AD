@@ -143,6 +143,8 @@ export interface BroadcastDeliverySummary {
   nativePushFailed: number;
   gatewayOnline?: boolean;
   serverPlatform: string;
+  serverHostname?: string;
+  nativePushErrors?: Array<{ machineName: string; dest: string; error: string }>;
   offlineMachines: string[];
 }
 
